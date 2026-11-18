@@ -1,3 +1,5 @@
+using FluentValidation;
+using KutuphaneYonetim.Business.Validation;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 
@@ -12,20 +14,20 @@ public interface IMemberService
     Task DeleteAsync(int memberId, CancellationToken cancellationToken = default);
 }
 
-internal sealed class MemberService(IMemberRepository members, ILoanRepository loans) : IMemberService
+internal sealed class MemberService(
+    IMemberRepository members,
+    ILoanRepository loans,
+    IValidator<MemberInput> validator) : IMemberService
 {
-    internal const int MaxNameLength = 50;
-
     public Task<IReadOnlyList<Member>> GetAllAsync(CancellationToken cancellationToken = default) =>
         members.GetAllAsync(cancellationToken);
 
     public async Task<Member> AddAsync(string firstName, string lastName, CancellationToken cancellationToken = default)
     {
-        var member = new Member
-        {
-            FirstName = Validation.Required(firstName, "Ad", MaxNameLength),
-            LastName = Validation.Required(lastName, "Soyad", MaxNameLength),
-        };
+        var input = MemberInput.Create(firstName, lastName);
+        validator.ValidateOrThrow(input);
+
+        var member = new Member { FirstName = input.FirstName, LastName = input.LastName };
 
         member.Id = await members.AddAsync(member, cancellationToken).ConfigureAwait(false);
         return member;
@@ -34,7 +36,7 @@ internal sealed class MemberService(IMemberRepository members, ILoanRepository l
     public async Task DeleteAsync(int memberId, CancellationToken cancellationToken = default)
     {
         _ = await members.GetByIdAsync(memberId, cancellationToken).ConfigureAwait(false)
-            ?? throw new BusinessRuleException("Seçilen üye bulunamadı.");
+            ?? throw new BusinessRuleException(Messages.MemberNotFound);
 
         if (await loans.HasActiveLoanForMemberAsync(memberId, cancellationToken).ConfigureAwait(false))
         {

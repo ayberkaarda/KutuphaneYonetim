@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KutuphaneYonetim.UI.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KutuphaneYonetim.Data.Tests", "tests\KutuphaneYonetim.Data.Tests\KutuphaneYonetim.Data.Tests.csproj", "{11BCA329-F65B-4A05-8006-490436F20F95}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KutuphaneYonetim.Business.Tests", "tests\KutuphaneYonetim.Business.Tests\KutuphaneYonetim.Business.Tests.csproj", "{64F9434E-DB48-4406-AAF5-2FC0B3061075}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -101,6 +103,18 @@ Global
 		{11BCA329-F65B-4A05-8006-490436F20F95}.Release|x64.Build.0 = Release|Any CPU
 		{11BCA329-F65B-4A05-8006-490436F20F95}.Release|x86.ActiveCfg = Release|Any CPU
 		{11BCA329-F65B-4A05-8006-490436F20F95}.Release|x86.Build.0 = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|x64.Build.0 = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Debug|x86.Build.0 = Debug|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|x64.ActiveCfg = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|x64.Build.0 = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|x86.ActiveCfg = Release|Any CPU
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -112,5 +126,6 @@ Global
 		{10C699F4-88BE-4C9F-8BC1-EB7E7521D0D6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{87863B80-0428-49F8-A0C0-440FBDDA21FC} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{11BCA329-F65B-4A05-8006-490436F20F95} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{64F9434E-DB48-4406-AAF5-2FC0B3061075} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

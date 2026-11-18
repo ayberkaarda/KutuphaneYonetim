@@ -1,11 +1,14 @@
 using System.Data.Common;
-using System.Diagnostics;
 using KutuphaneYonetim.Business;
 using KutuphaneYonetim.Data.Persistence;
+using Serilog;
 
 namespace KutuphaneYonetim.UI.Infrastructure;
 
-/// <summary>Turns exceptions into short, user friendly Turkish messages.</summary>
+/// <summary>
+/// Logs exceptions and turns them into short, user friendly Turkish messages. Technical details
+/// go to the log file only; the user never sees raw exception text.
+/// </summary>
 internal static class ErrorReporter
 {
     private const string Caption = "Kütüphane Yönetim";
@@ -19,11 +22,13 @@ internal static class ErrorReporter
 
         if (exception is BusinessRuleException)
         {
+            // Business rule messages are fixed texts without user data.
+            Log.Warning("Business rule rejected an operation: {Rule}", exception.Message);
             MessageBox.Show(owner, exception.Message, "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        Trace.TraceError(exception.ToString());
+        Log.Error("Operation failed: {Details}", AppLogging.DescribeForLog(exception));
         MessageBox.Show(owner, Describe(exception), Caption, MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
@@ -47,7 +52,9 @@ internal static class ErrorReporter
             return "İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.";
         }
 
-        return "Beklenmeyen bir hata oluştu. İşleminiz tamamlanamamış olabilir.\n\nAyrıntı: " + exception.Message;
+        // Raw exception text is technical (often English) and may contain user data: log only.
+        return "Beklenmeyen bir hata oluştu. İşleminiz tamamlanamamış olabilir.\n\n"
+            + "Ayrıntılar günlük dosyasına kaydedildi.";
     }
 
     private static T? Find<T>(Exception exception)
