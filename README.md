@@ -1,55 +1,73 @@
-# 📚 Kütüphane Yönetim Sistemi
+# Library Management System
 
-Bu proje, **C#** ve **SQL Server** kullanılarak geliştirilmiş basit bir **Kütüphane Yönetim Sistemi** uygulamasıdır. Kitap takibi, üye yönetimi ve kitap ödünç verme işlemlerini kolaylaştırmak için tasarlanmıştır.
+A Windows Forms library management application built with .NET 10 and SQL Server. It tracks books,
+members and loans (lend / return with dates).
 
-## 📦 Kurulum
+Türkçe için: [README.tr.md](README.tr.md)
 
-1. Proje klasöründe yer alan `.bak` uzantılı veritabanı yedeğini SQL Server üzerinden kendi sunucunuza **restore** edin.
-2. Visual Studio'da `DatabaseHelper.cs` dosyasına gidin ve `server` adını kendi bilgisayarınıza uygun şekilde değiştirin.
-3. Projeyi derleyerek doğrudan kullanmaya başlayabilirsiniz.
+## Features
 
-## 🧰 Özellikler
+- **Books**: list, add and delete books.
+- **Members**: list, add and delete members.
+- **Loans**: lend a book to a member, take it back, and see loan and return dates.
+- Business rules: a book cannot be lent to two members at the same time; a book or member with an
+  open loan (or loan history) cannot be deleted.
 
-### 📖 Kitaplar Menüsü
+## Architecture
 
-- Var olan kitapları görüntüleyebilirsiniz.
-- Yeni kitap ekleyebilir ya da mevcut kitapları silebilirsiniz.
+```
+src/
+  KutuphaneYonetim.Domain    Entities and repository contracts
+  KutuphaneYonetim.Business  BookService, MemberService, LoanService (business rules)
+  KutuphaneYonetim.Data      EF Core DbContext, entity configurations, migrations, repositories
+  KutuphaneYonetim.UI        WinForms screens; Program.cs is the composition root (DI)
+```
 
-### 👥 Üyeler Menüsü
+- Data access uses EF Core (SQL Server provider); all database access is asynchronous and parameterised.
+- The provider is configured through DI (`AddDataAccess`), so tests can use SQLite in-memory.
+- On startup the application applies pending EF Core migrations and creates the database if needed.
+- Unhandled errors are caught globally and shown to the user as a short message.
 
-- Yeni üye ekleyebilir, mevcut üyeleri listeleyebilir ya da silebilirsiniz.
+## Requirements
 
-### 🔄 Ödünç Alma Menüsü
+- .NET 10 SDK (Windows)
+- SQL Server (Express or LocalDB is enough)
 
-- Kitap ve üye seçerek kitap ödünç verebilirsiniz.
-- Veritabanı üzerinden ödünç alma ve geri verme tarihlerini takip edebilirsiniz.
+## Setup
 
-## 🖼️ Ekran Görüntüleri
+1. Provide a connection string. Any of the following works (later ones override earlier ones):
+   - Copy `src/KutuphaneYonetim.UI/appsettings.example.json` to `appsettings.json` in the same
+     folder and edit `ConnectionStrings:Kutuphane`. `appsettings.json` is git-ignored.
+   - User secrets:
+     `dotnet user-secrets set "ConnectionStrings:Kutuphane" "<connection string>" --project src/KutuphaneYonetim.UI`
+   - Environment variable `KUTUPHANE_CONNECTION`.
+2. Build and run:
+   ```
+   dotnet build -c Release
+   dotnet run --project src/KutuphaneYonetim.UI
+   ```
+   The database and its sample data are created on first start.
 
-### Ana Sayfa
-![Ana Sayfa](screenshots/anasayfa.png)
+## Migrations
 
-### Kitaplar Menüsü
-![Kitaplar Menüsü](screenshots/kitap_ekle_sil.png)
+```
+dotnet tool restore
+dotnet ef migrations list --project src/KutuphaneYonetim.Data
+dotnet ef migrations add <Name> --project src/KutuphaneYonetim.Data --output-dir Persistence/Migrations
+```
 
-### Kitap Ödünç Al Menüsü
-![Ödünç Al Menüsü](screenshots/kitap_odunc_al.png)
+The design-time factory reads `KUTUPHANE_CONNECTION` and otherwise uses a local SQL Server Express instance.
 
-### Kullanıcı Yönetim Ekranı
-![Kullanıcı Yönetimi](screenshots/kullanici_ekle_sil.png)
+## Screenshots
 
-## 🛠️ Kullanılan Teknolojiler
+| Main menu | Books |
+| --- | --- |
+| ![Main menu](screenshots/anasayfa.png) | ![Books](screenshots/kitap_ekle_sil.png) |
 
-- C# (.NET Framework - Windows Forms)
-- SQL Server
-- ADO.NET
-- WinForms UI
+| Loans | Members |
+| --- | --- |
+| ![Loans](screenshots/kitap_odunc_al.png) | ![Members](screenshots/kullanici_ekle_sil.png) |
 
-## 📌 Notlar
+## License
 
-- Bu proje temel düzeyde hazırlanmış bir Kütüphane Otomasyonu örneğidir.
-- Geliştirme amacı eğitimsel olup güvenlik ve kullanıcı rolleri gibi detaylar sadeleştirilmiştir.
-
-## 📄 Lisans
-
-Bu proje kişisel ve eğitimsel kullanım için ücretsizdir. Ticari amaçla kullanılması uygun değildir.
+Free for personal and educational use. Commercial use is not permitted.
