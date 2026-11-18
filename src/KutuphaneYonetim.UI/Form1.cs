@@ -1,35 +1,31 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using KutuphaneYonetim.UI.Infrastructure;
 
 namespace KutuphaneYonetim.UI
 {
+    /// <summary>Main menu that opens the book, member and loan screens.</summary>
     public partial class Form1 : Form
     {
-        public Form1()
+        private readonly IFormFactory _formFactory;
+
+        public Form1(IFormFactory formFactory)
         {
+            _formFactory = formFactory;
             InitializeComponent();
         }
 
         private void btnKitap_Click(object sender, EventArgs e)
         {
-            new KitapForm().Show();
+            _formFactory.Create<KitapForm>().Show();
         }
 
         private void btnUye_Click(object sender, EventArgs e)
         {
-            new UyeForm().Show();
+            _formFactory.Create<UyeForm>().Show();
         }
 
         private void btnOdunc_Click(object sender, EventArgs e)
         {
-            new OduncForm().Show();
+            _formFactory.Create<OduncForm>().Show();
         }
     }
 }

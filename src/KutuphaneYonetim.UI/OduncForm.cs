@@ -1,106 +1,101 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using Microsoft.Data.SqlClient;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using KutuphaneYonetim.Business.Services;
+using KutuphaneYonetim.Domain.Entities;
+using KutuphaneYonetim.UI.Infrastructure;
 
 namespace KutuphaneYonetim.UI
 {
+    /// <summary>Lends books to members, takes returns and shows the loan history with dates.</summary>
     public partial class OduncForm : Form
     {
-        public OduncForm()
+        private static readonly Dictionary<string, string> ColumnHeaders = new()
         {
+            [nameof(LoanDetail.Id)] = "İşlem No",
+            [nameof(LoanDetail.BookId)] = "Kitap No",
+            [nameof(LoanDetail.BookTitle)] = "Kitap",
+            [nameof(LoanDetail.MemberId)] = "Üye No",
+            [nameof(LoanDetail.MemberName)] = "Üye",
+            [nameof(LoanDetail.LoanDate)] = "Ödünç Tarihi",
+            [nameof(LoanDetail.ReturnDate)] = "İade Tarihi",
+        };
+
+        private readonly IBookService _bookService;
+        private readonly IMemberService _memberService;
+        private readonly ILoanService _loanService;
+        private int? _selectedBookId;
+
+        public OduncForm(IBookService bookService, IMemberService memberService, ILoanService loanService)
+        {
+            _bookService = bookService;
+            _memberService = memberService;
+            _loanService = loanService;
             InitializeComponent();
         }
 
-        private void OduncForm_Load(object sender, EventArgs e)
+        private async void OduncForm_Load(object sender, EventArgs e)
         {
-            YukleComboBoxlar();
-            ListeleOdunc();
+            await this.RunAsync(async () =>
+            {
+                await LoadComboBoxesAsync();
+                await ListLoansAsync();
+            });
         }
 
-
-        int secilenKitapId = -1;
-
-
-
-        private void YukleComboBoxlar()
+        private async Task LoadComboBoxesAsync()
         {
-            cmbKitaplar.DataSource = DatabaseHelper.ExecuteSelectCommand("SELECT * FROM Kitaplar WHERE durum = 1");
-            cmbKitaplar.DisplayMember = "ad";
-            cmbKitaplar.ValueMember = "kitap_id";
+            cmbKitaplar.DisplayMember = nameof(Book.Title);
+            cmbKitaplar.ValueMember = nameof(Book.Id);
+            cmbKitaplar.DataSource = await _bookService.GetAvailableAsync();
 
-            cmbUyeler.DataSource = DatabaseHelper.ExecuteSelectCommand("SELECT * FROM Uyeler");
-            cmbUyeler.DisplayMember = "ad";
-            cmbUyeler.ValueMember = "uye_id";
+            cmbUyeler.DisplayMember = nameof(Member.FullName);
+            cmbUyeler.ValueMember = nameof(Member.Id);
+            cmbUyeler.DataSource = await _memberService.GetAllAsync();
         }
 
-        private void btnOduncAl_Click(object sender, EventArgs e)
+        private async Task ListLoansAsync()
         {
-            string query = @"
-            INSERT INTO OduncIslemleri (kitap_id, uye_id, odunc_tarihi) VALUES (@kitap_id, @uye_id, @tarih);
-            UPDATE Kitaplar SET durum = 0 WHERE kitap_id = @kitap_id;";
-            SqlParameter[] parameters = {
-            new SqlParameter("@kitap_id", cmbKitaplar.SelectedValue),
-            new SqlParameter("@uye_id", cmbUyeler.SelectedValue),
-            new SqlParameter("@tarih", DateTime.Now)
-        };
-            DatabaseHelper.ExecuteNonQuery(query, parameters);
-            YukleComboBoxlar();
-            ListeleOdunc();
+            dataGridView1.DataSource = await _loanService.GetAllAsync();
+            dataGridView1.ConfigureColumns(ColumnHeaders);
         }
 
-        private void btnIadeEt_Click(object sender, EventArgs e)
+        private async void btnOduncAl_Click(object sender, EventArgs e)
         {
-            if (secilenKitapId == -1)
+            if (cmbKitaplar.SelectedValue is not int bookId || cmbUyeler.SelectedValue is not int memberId)
+            {
+                MessageBox.Show("Lütfen ödünç verilecek kitabı ve üyeyi seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            await this.RunAsync(async () =>
+            {
+                await _loanService.LendAsync(bookId, memberId);
+                await LoadComboBoxesAsync();
+                await ListLoansAsync();
+            });
+        }
+
+        private async void btnIadeEt_Click(object sender, EventArgs e)
+        {
+            if (_selectedBookId is not int bookId)
             {
                 MessageBox.Show("Lütfen iade edilecek kitabı seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            string query = @"
-        UPDATE Kitaplar SET durum = 1 WHERE kitap_id = @kitap_id;
-        UPDATE OduncIslemleri SET iade_tarihi = @iade 
-        WHERE kitap_id = @kitap_id AND iade_tarihi IS NULL;";
-            SqlParameter[] parameters = {
-        new SqlParameter("@kitap_id", secilenKitapId),
-        new SqlParameter("@iade", DateTime.Now)
-    };
-
-            try
+            await this.RunAsync(async () =>
             {
-                DatabaseHelper.ExecuteNonQuery(query, parameters);
+                await _loanService.ReturnAsync(bookId);
                 MessageBox.Show("Kitap başarıyla iade edildi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                YukleComboBoxlar();
-                ListeleOdunc();
-                secilenKitapId = -1; // Sıfırla
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("İade sırasında hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-
-
-        private void ListeleOdunc()
-        {
-            dataGridView1.DataSource = DatabaseHelper.ExecuteSelectCommand("SELECT * FROM OduncIslemleri");
+                await LoadComboBoxesAsync();
+                await ListLoansAsync();
+                _selectedBookId = null;
+            });
         }
 
         private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex >= 0)
+            if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is LoanDetail loan)
             {
-                DataGridViewRow row = dataGridView1.Rows[e.RowIndex];
-
-                // kitap_id sütun adının veritabanındaki ve griddeki adla aynı olduğundan emin ol
-                secilenKitapId = Convert.ToInt32(row.Cells["kitap_id"].Value);
+                _selectedBookId = loan.BookId;
             }
         }
     }

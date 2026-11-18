@@ -1,114 +1,93 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using Microsoft.Data.SqlClient;
+﻿using KutuphaneYonetim.Business.Services;
+using KutuphaneYonetim.Domain.Entities;
+using KutuphaneYonetim.UI.Infrastructure;
 
 namespace KutuphaneYonetim.UI
 {
+    /// <summary>Lists, adds and deletes members.</summary>
     public partial class UyeForm : Form
     {
-        public UyeForm()
+        private static readonly Dictionary<string, string> ColumnHeaders = new()
         {
+            [nameof(Member.Id)] = "Üye No",
+            [nameof(Member.FirstName)] = "Ad",
+            [nameof(Member.LastName)] = "Soyad",
+        };
+
+        private readonly IMemberService _memberService;
+        private int? _selectedMemberId;
+
+        public UyeForm(IMemberService memberService)
+        {
+            _memberService = memberService;
             InitializeComponent();
         }
 
-        int secilenUyeId = -1;
-
-        private void ListeleUyeler()
+        private async Task ListMembersAsync()
         {
-            dataGridView1.DataSource = DatabaseHelper.ExecuteSelectCommand("SELECT * FROM Uyeler");
+            dataGridView1.DataSource = await _memberService.GetAllAsync();
+            dataGridView1.ConfigureColumns(ColumnHeaders);
         }
 
-        private void UyeForm_Load(object sender, EventArgs e)
+        private async void UyeForm_Load(object sender, EventArgs e)
         {
-            ListeleUyeler();
+            await this.RunAsync(ListMembersAsync);
         }
 
-        private void btnEkle_Click(object sender, EventArgs e)
+        private async void btnEkle_Click(object sender, EventArgs e)
         {
-
-            // Boşluk kontrolü
             if (string.IsNullOrWhiteSpace(txtAd.Text) || string.IsNullOrWhiteSpace(txtSoyad.Text))
             {
                 MessageBox.Show("Lütfen tüm alanları doldurun.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            string query = "INSERT INTO Uyeler (ad, soyad) VALUES (@ad, @soyad)";
-            SqlParameter[] parameters = {
-        new SqlParameter("@ad", txtAd.Text.Trim()),
-        new SqlParameter("@soyad", txtSoyad.Text.Trim())
-    };
-
-            try
+            await this.RunAsync(async () =>
             {
-                DatabaseHelper.ExecuteNonQuery(query, parameters);
+                await _memberService.AddAsync(txtAd.Text, txtSoyad.Text);
                 MessageBox.Show("Üye başarıyla eklendi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                ListeleUyeler();
+                await ListMembersAsync();
 
-                // Alanları temizle
                 txtAd.Clear();
                 txtSoyad.Clear();
                 txtAd.Focus();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            });
         }
 
         private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
         {
-            // Satır geçerli mi kontrol et
-            if (e.RowIndex >= 0)
+            if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is Member member)
             {
-                DataGridViewRow row = dataGridView1.Rows[e.RowIndex];
-                secilenUyeId = Convert.ToInt32(row.Cells["uye_id"].Value);
-
-                // Seçilen verileri textbox'lara yüklemek istersen (isteğe bağlı):
-                txtAd.Text = row.Cells["ad"].Value.ToString();
-                txtSoyad.Text = row.Cells["soyad"].Value.ToString();
+                _selectedMemberId = member.Id;
+                txtAd.Text = member.FirstName;
+                txtSoyad.Text = member.LastName;
             }
         }
 
-        private void btnSil_Click(object sender, EventArgs e)
+        private async void btnSil_Click(object sender, EventArgs e)
         {
-            if (secilenUyeId == -1)
+            if (_selectedMemberId is not int memberId)
             {
                 MessageBox.Show("Lütfen silinecek bir üye seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             DialogResult result = MessageBox.Show("Bu üyeyi silmek istediğinize emin misiniz?", "Onay", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (result == DialogResult.Yes)
+            if (result != DialogResult.Yes)
             {
-                string query = "DELETE FROM Uyeler WHERE uye_id = @id";
-                SqlParameter[] parameters = {
-            new SqlParameter("@id", secilenUyeId)
-        };
-
-                try
-                {
-                    DatabaseHelper.ExecuteNonQuery(query, parameters);
-                    MessageBox.Show("Üye silindi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    ListeleUyeler();
-                    secilenUyeId = -1;
-
-                    // Textbox temizle
-                    txtAd.Clear();
-                    txtSoyad.Clear();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Silme sırasında hata oluştu: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                return;
             }
+
+            await this.RunAsync(async () =>
+            {
+                await _memberService.DeleteAsync(memberId);
+                MessageBox.Show("Üye silindi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _selectedMemberId = null;
+                await ListMembersAsync();
+
+                txtAd.Clear();
+                txtSoyad.Clear();
+            });
         }
     }
 }
