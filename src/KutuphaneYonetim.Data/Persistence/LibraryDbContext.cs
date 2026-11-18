@@ -1,0 +1,26 @@
+using KutuphaneYonetim.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace KutuphaneYonetim.Data.Persistence;
+
+/// <summary>
+/// EF Core context for the library database. Table and column names follow the original
+/// schema (Kitaplar, Uyeler, OduncIslemleri).
+/// </summary>
+public sealed class LibraryDbContext(DbContextOptions<LibraryDbContext> options) : DbContext(options)
+{
+    /// <summary>Name of the shadow concurrency token configured on every table.</summary>
+    public const string RowVersion = "RowVersion";
+
+    public DbSet<Book> Books => Set<Book>();
+
+    public DbSet<Member> Members => Set<Member>();
+
+    public DbSet<Loan> Loans => Set<Loan>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(LibraryDbContext).Assembly);
+    }
+}
