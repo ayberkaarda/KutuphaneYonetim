@@ -74,10 +74,7 @@ internal sealed class LoanInputValidator : AbstractValidator<LoanInput>
 {
     public LoanInputValidator()
     {
+        // No id range checks: legacy rows may carry any id, so LoanService decides existence via GetByIdAsync.
         ClassLevelCascadeMode = CascadeMode.Stop;
-
-        // Identity values start at 1, so anything else cannot match a stored record.
-        RuleFor(l => l.BookId).GreaterThan(0).WithMessage(Messages.BookNotFound);
-        RuleFor(l => l.MemberId).GreaterThan(0).WithMessage(Messages.MemberNotFound);
     }
 }

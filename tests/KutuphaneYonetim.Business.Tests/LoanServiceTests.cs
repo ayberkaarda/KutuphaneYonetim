@@ -79,15 +79,31 @@ public sealed class LoanServiceTests
     [InlineData(0, 4, "Seçilen kitap bulunamadı.")]
     [InlineData(-1, 4, "Seçilen kitap bulunamadı.")]
     [InlineData(2, 0, "Seçilen üye bulunamadı.")]
-    public async Task LendAsync_InvalidIds_AreRejectedWithoutTouchingTheDatabase(int bookId, int memberId, string expectedMessage)
+    public async Task LendAsync_NonPositiveIdsThatDoNotExist_AreRejectedAsNotFound(int bookId, int memberId, string expectedMessage)
     {
+        _books.Setup(b => b.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(bookId == 2 ? new Book { Id = bookId } : null);
+        _members.Setup(m => m.GetByIdAsync(memberId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Member?)null);
+
         var error = await Assert.ThrowsAsync<BusinessRuleException>(
             () => _service.LendAsync(bookId, memberId, TestContext.Current.CancellationToken));
 
         Assert.Equal(expectedMessage, error.Message);
-        _books.VerifyNoOtherCalls();
-        _members.VerifyNoOtherCalls();
         _loans.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(-5, -7)]
+    public async Task LendAsync_ExistingLegacyRecordsWithNonPositiveIds_CanBeLent(int bookId, int memberId)
+    {
+        GivenBookAndMember(bookId, memberId);
+        _loans.Setup(l => l.LendAsync(bookId, memberId, Now.UtcDateTime, It.IsAny<CancellationToken>())).ReturnsAsync(10);
+
+        await _service.LendAsync(bookId, memberId, TestContext.Current.CancellationToken);
+
+        _loans.Verify(l => l.LendAsync(bookId, memberId, Now.UtcDateTime, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
