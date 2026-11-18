@@ -1,0 +1,112 @@
+using KutuphaneYonetim.Business.Services;
+using KutuphaneYonetim.Business.Validation;
+using KutuphaneYonetim.Domain.Entities;
+using KutuphaneYonetim.Domain.Repositories;
+using Moq;
+
+namespace KutuphaneYonetim.Business.Tests;
+
+public sealed class MemberServiceTests
+{
+    private readonly Mock<IMemberRepository> _members = new(MockBehavior.Strict);
+    private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
+    private readonly MemberService _service;
+
+    public MemberServiceTests()
+    {
+        _service = new MemberService(_members.Object, _loans.Object, new MemberInputValidator());
+    }
+
+    [Fact]
+    public async Task AddAsync_ValidInput_TrimsAndStoresMember()
+    {
+        Member? stored = null;
+        _members.Setup(m => m.AddAsync(It.IsAny<Member>(), It.IsAny<CancellationToken>()))
+            .Callback<Member, CancellationToken>((member, _) => stored = member)
+            .ReturnsAsync(5);
+
+        var result = await _service.AddAsync(" Ayşe ", "Yılmaz  ", TestContext.Current.CancellationToken);
+
+        Assert.Equal(5, result.Id);
+        Assert.NotNull(stored);
+        Assert.Equal("Ayşe", stored.FirstName);
+        Assert.Equal("Yılmaz", stored.LastName);
+    }
+
+    [Theory]
+    [InlineData("", "Soyad", "Ad alanı boş bırakılamaz.")]
+    [InlineData("  ", "Soyad", "Ad alanı boş bırakılamaz.")]
+    [InlineData("Ad", "", "Soyad alanı boş bırakılamaz.")]
+    [InlineData("Ad", null, "Soyad alanı boş bırakılamaz.")]
+    public async Task AddAsync_MissingField_IsRejectedWithoutTouchingTheDatabase(
+        string firstName, string? lastName, string expectedMessage)
+    {
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.AddAsync(firstName, lastName!, TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedMessage, error.Message);
+        _members.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(51, 1, "Ad en fazla 50 karakter olabilir.")]
+    [InlineData(1, 51, "Soyad en fazla 50 karakter olabilir.")]
+    public async Task AddAsync_NameLongerThanLimit_IsRejected(int firstLength, int lastLength, string expectedMessage)
+    {
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.AddAsync(
+            new string('a', firstLength), new string('b', lastLength), TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedMessage, error.Message);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_UnknownMember_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync((Member?)null);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.DeleteAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Seçilen üye bulunamadı.", error.Message);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_MemberWithOpenLoan_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.HasActiveLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.DeleteAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Bu üyenin iade etmediği kitap bulunduğu için silinemez.", error.Message);
+        _members.Verify(m => m.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_MemberWithLoanHistory_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.HasActiveLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _loans.Setup(l => l.HasAnyLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.DeleteAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Bu üyenin ödünç geçmişi bulunduğu için silinemez.", error.Message);
+        _members.Verify(m => m.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_MemberWithoutLoans_IsDeleted()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.HasActiveLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _loans.Setup(l => l.HasAnyLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _members.Setup(m => m.DeleteAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await _service.DeleteAsync(3, TestContext.Current.CancellationToken);
+
+        _members.Verify(m => m.DeleteAsync(3, It.IsAny<CancellationToken>()), Times.Once);
+    }
+}
