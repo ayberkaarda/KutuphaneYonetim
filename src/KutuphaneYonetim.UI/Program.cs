@@ -5,6 +5,8 @@ using KutuphaneYonetim.UI.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("KutuphaneYonetim.UI.Tests")]
+
 namespace KutuphaneYonetim.UI
 {
     internal static class Program
@@ -55,8 +57,7 @@ namespace KutuphaneYonetim.UI
 
         private static IConfiguration BuildConfiguration() =>
             new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                .AddSettingsFile(AppContext.BaseDirectory, AppConfiguration.SettingsFileName)
                 .AddUserSecrets(typeof(Program).Assembly, optional: true)
                 .AddEnvironmentVariables()
                 .Build();
@@ -81,5 +82,17 @@ namespace KutuphaneYonetim.UI
             services.AddSingleton<IFormFactory, FormFactory>();
             return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
         }
+    }
+
+    /// <summary>How the application reads its JSON settings files.</summary>
+    internal static class AppConfiguration
+    {
+        public const string SettingsFileName = "appsettings.json";
+
+        /// <summary>Adds an optional JSON settings file located in <paramref name="basePath"/>.</summary>
+        public static IConfigurationBuilder AddSettingsFile(this IConfigurationBuilder builder, string basePath, string fileName) =>
+            builder
+                .SetBasePath(basePath)
+                .AddJsonFile(fileName, optional: true, reloadOnChange: false);
     }
 }
