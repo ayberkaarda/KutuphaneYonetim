@@ -36,9 +36,12 @@ jobs:
         run: dotnet publish src/KutuphaneYonetim.UI -c Release -r win-x64 --self-contained false -o publish
       - name: Zip
         shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
+          if ($env:REF_NAME -notmatch '^[A-Za-z0-9._-]+$') { throw "Unsafe tag name for a file name." }
           Copy-Item README.md, README.tr.md, CHANGELOG.md, CHANGELOG.tr.md publish/
-          Compress-Archive -Path publish/* -DestinationPath "KutuphaneYonetim-${{ github.ref_name }}-win-x64.zip"
+          Compress-Archive -Path publish/* -DestinationPath "KutuphaneYonetim-$($env:REF_NAME)-win-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: KutuphaneYonetim-${{ github.ref_name }}-win-x64
