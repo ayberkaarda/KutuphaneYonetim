@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace KutuphaneYonetimi
+namespace KutuphaneYonetim.UI
 {
     internal static class Program
     {

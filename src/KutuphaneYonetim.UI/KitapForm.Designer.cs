@@ -1,4 +1,4 @@
-﻿namespace KutuphaneYonetimi
+﻿namespace KutuphaneYonetim.UI
 {
     partial class KitapForm
     {

@@ -7,9 +7,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
-namespace KutuphaneYonetimi
+namespace KutuphaneYonetim.UI
 {
     public partial class UyeForm : Form
     {
