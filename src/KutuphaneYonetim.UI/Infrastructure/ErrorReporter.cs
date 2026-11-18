@@ -52,7 +52,9 @@ internal static class ErrorReporter
             return "İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.";
         }
 
-        return "Beklenmeyen bir hata oluştu. İşleminiz tamamlanamamış olabilir.\n\nAyrıntı: " + exception.Message;
+        // Raw exception text is technical (often English) and may contain user data: log only.
+        return "Beklenmeyen bir hata oluştu. İşleminiz tamamlanamamış olabilir.\n\n"
+            + "Ayrıntılar günlük dosyasına kaydedildi.";
     }
 
     private static T? Find<T>(Exception exception)
