@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Diagnostics;
 using System.Text;
 using Serilog;
 using Serilog.Core;
@@ -47,6 +48,27 @@ internal static class AppLogging
         return builder.ToString();
     }
 
+    // Only "Type.Method" is logged; file paths and line numbers can reveal local directories or user names.
+    private static void AppendFrames(StringBuilder builder, Exception exception, string indent)
+    {
+        foreach (var frame in new StackTrace(exception, fNeedFileInfo: false).GetFrames())
+        {
+            var method = frame.GetMethod();
+            if (method is null)
+            {
+                continue;
+            }
+
+            builder.Append(indent).Append("   at ");
+            if (method.DeclaringType is { } type)
+            {
+                builder.Append(type.FullName).Append('.');
+            }
+
+            builder.AppendLine(method.Name);
+        }
+    }
+
     private static void Append(StringBuilder builder, Exception exception, int depth)
     {
         var indent = new string(' ', depth * 2);
@@ -63,10 +85,7 @@ internal static class AppLogging
         }
 
         builder.AppendLine();
-        if (exception.StackTrace is { } stackTrace)
-        {
-            builder.Append(indent).AppendLine(stackTrace.TrimEnd());
-        }
+        AppendFrames(builder, exception, indent);
 
         if (exception is AggregateException aggregate)
         {

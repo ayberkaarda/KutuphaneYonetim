@@ -23,6 +23,17 @@ public sealed class ErrorHandlingTests
     }
 
     [Fact]
+    public void DescribeForLog_WritesMethodNamesWithoutSourcePaths()
+    {
+        var logText = AppLogging.DescribeForLog(Throw(new InvalidOperationException("x")));
+
+        Assert.Contains(nameof(ErrorHandlingTests) + "." + nameof(Throw), logText, StringComparison.Ordinal);
+        Assert.DoesNotContain(".cs", logText, StringComparison.Ordinal);
+        Assert.DoesNotContain(":line", logText, StringComparison.Ordinal);
+        Assert.DoesNotContain(Path.DirectorySeparatorChar + nameof(ErrorHandlingTests), logText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DescribeForLog_IncludesAllAggregateInnerExceptions()
     {
         var exception = new AggregateException(new TimeoutException(PersonalData), new FormatException(PersonalData));
