@@ -197,8 +197,9 @@ Atlanan test, SQL Server gerektiren eski şema yükseltme testidir. `KUTUPHANE_T
 sunucuda (varsayılan: Windows kimlik doğrulamalı yerel SQL Express) geçici bir veritabanı kullanır;
 `KUTUPHANE_SKIP_SQL_TESTS=1` tanımlıysa ya da sunucuya ulaşılamıyorsa atlanır. Geçici veritabanı sonra silinir.
 
-SQLite'ta şema migration yerine modelden (`EnsureCreated`) oluşturulur ve satır sürümleri üretilmez; bu yüzden
-eşzamanlılık yarışları yalnızca SQL Server testiyle kapsanır.
+SQLite'ta şema migration yerine modelden (`EnsureCreated`) oluşturulur ve satır sürümleri üretilmez. SQL Server testi
+yalnızca filtrelenmiş benzersiz indeksin aynı kitap için ikinci bir açık ödünç kaydını reddettiğini doğrular;
+eşzamanlı yarışları hiçbir test çalıştırmaz.
 
 ---
 

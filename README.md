@@ -199,7 +199,8 @@ in `KUTUPHANE_TEST_SQLSERVER` (default: local SQL Express with Windows authentic
 `KUTUPHANE_SKIP_SQL_TESTS=1` is set or no server is reachable. The temporary database is dropped afterwards.
 
 On SQLite the schema is created from the model (`EnsureCreated`) instead of migrations, and row versions are
-not generated, so concurrency races are only covered by the SQL Server test.
+not generated. The SQL Server test only verifies that the filtered unique index rejects a second open loan for
+the same book; concurrent races are not exercised by any test.
 
 ---
 
