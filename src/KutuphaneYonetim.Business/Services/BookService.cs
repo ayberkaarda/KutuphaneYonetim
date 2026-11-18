@@ -1,3 +1,5 @@
+using FluentValidation;
+using KutuphaneYonetim.Business.Validation;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 
@@ -14,11 +16,11 @@ public interface IBookService
     Task DeleteAsync(int bookId, CancellationToken cancellationToken = default);
 }
 
-internal sealed class BookService(IBookRepository books, ILoanRepository loans) : IBookService
+internal sealed class BookService(
+    IBookRepository books,
+    ILoanRepository loans,
+    IValidator<BookInput> validator) : IBookService
 {
-    internal const int MaxTitleLength = 100;
-    internal const int MaxAuthorLength = 100;
-
     public Task<IReadOnlyList<Book>> GetAllAsync(CancellationToken cancellationToken = default) =>
         books.GetAllAsync(cancellationToken);
 
@@ -27,12 +29,10 @@ internal sealed class BookService(IBookRepository books, ILoanRepository loans) 
 
     public async Task<Book> AddAsync(string title, string author, CancellationToken cancellationToken = default)
     {
-        var book = new Book
-        {
-            Title = Validation.Required(title, "Kitap adı", MaxTitleLength),
-            Author = Validation.Required(author, "Yazar", MaxAuthorLength),
-            IsAvailable = true,
-        };
+        var input = BookInput.Create(title, author);
+        validator.ValidateOrThrow(input);
+
+        var book = new Book { Title = input.Title, Author = input.Author, IsAvailable = true };
 
         book.Id = await books.AddAsync(book, cancellationToken).ConfigureAwait(false);
         return book;
@@ -41,7 +41,7 @@ internal sealed class BookService(IBookRepository books, ILoanRepository loans) 
     public async Task DeleteAsync(int bookId, CancellationToken cancellationToken = default)
     {
         _ = await books.GetByIdAsync(bookId, cancellationToken).ConfigureAwait(false)
-            ?? throw new BusinessRuleException("Seçilen kitap bulunamadı.");
+            ?? throw new BusinessRuleException(Messages.BookNotFound);
 
         if (await loans.HasActiveLoanForBookAsync(bookId, cancellationToken).ConfigureAwait(false))
         {
