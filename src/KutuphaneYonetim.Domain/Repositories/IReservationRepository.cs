@@ -48,7 +48,14 @@ public interface IReservationRepository
     /// <summary>
     /// Expires holds whose <see cref="Reservation.ExpiresAt"/> lies before <paramref name="now"/> and serves
     /// the next waiting member of each such book with a hold until <paramref name="nextExpiresAt"/>.
-    /// Returns the number of expired reservations.
+    /// Each book is expired and served in its own transaction under its own lock, so a busy book does not
+    /// hold up or roll back the others. Returns the number of expired reservations.
     /// </summary>
     Task<int> ExpireHoldsAsync(DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Like <see cref="ExpireHoldsAsync"/>, limited to one book: used before lending or reserving that book
+    /// so the operation never waits on the locks of unrelated books.
+    /// </summary>
+    Task<int> ExpireHoldsForBookAsync(int bookId, DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default);
 }

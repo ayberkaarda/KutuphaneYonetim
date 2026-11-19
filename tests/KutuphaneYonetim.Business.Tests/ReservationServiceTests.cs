@@ -21,6 +21,9 @@ public sealed class ReservationServiceTests
         _service = new ReservationService(
             _books.Object, _members.Object, _reservations.Object, _policy, new FixedTimeProvider(Now));
         _reservations.Setup(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>())).ReturnsAsync(0);
+        _reservations
+            .Setup(r => r.ExpireHoldsForBookAsync(It.IsAny<int>(), LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -75,11 +78,12 @@ public sealed class ReservationServiceTests
     }
 
     [Fact]
-    public async Task ReserveAsync_ProcessesExpiredHoldsFirst()
+    public async Task ReserveAsync_ProcessesExpiredHoldsOfThatBookFirst()
     {
-        // The stale hold is expired first, so the book is seen as on the shelf afterwards.
+        // The stale hold is expired first, so the book is seen as on the shelf afterwards. Only this book
+        // is expired: other books' locks are never waited for.
         var calls = new List<string>();
-        _reservations.Setup(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>()))
+        _reservations.Setup(r => r.ExpireHoldsForBookAsync(2, LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>()))
             .Callback(() => calls.Add("expire"))
             .ReturnsAsync(1);
         GivenBook(2, ReserveOutcome.OnShelf);
@@ -90,6 +94,8 @@ public sealed class ReservationServiceTests
         await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
 
         Assert.Equal(["expire", "add"], calls);
+        _reservations.Verify(
+            r => r.ExpireHoldsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

@@ -72,7 +72,7 @@ internal sealed class LoanService(
         }
 
         // A hold that was not picked up in time must not block the book any longer.
-        await reservations.ExpireHoldsAsync(now, HoldEnd(now), cancellationToken).ConfigureAwait(false);
+        await reservations.ExpireHoldsForBookAsync(bookId, now, HoldEnd(now), cancellationToken).ConfigureAwait(false);
 
         // The repository re-checks inside a transaction, so two members can never hold the same book.
         var outcome = await loans
