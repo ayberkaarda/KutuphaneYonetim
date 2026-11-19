@@ -21,12 +21,12 @@ public sealed class ServiceIntegrationTests : IAsyncLifetime
         var members = _db.Get<IMemberService>();
         var loans = _db.Get<ILoanService>();
 
-        var book = await books.AddAsync("  Deneme Kitabı ", " Deneme Yazar ", Ct);
+        var book = await books.AddAsync("  Deneme Kitabı ", " Deneme Yazar ", cancellationToken: Ct);
         var member = await members.AddAsync(" Ali ", " Veli ", Ct);
         Assert.Equal("Deneme Kitabı", book.Title);
 
-        await loans.LendAsync(book.Id, member.Id, Ct);
-        await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 1, Ct));
+        await loans.LendAsync(book.Id, member.Id, cancellationToken: Ct);
+        await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 1, cancellationToken: Ct));
         Assert.DoesNotContain(await books.GetAvailableAsync(Ct), b => b.Id == book.Id);
 
         var deleteBook = await Assert.ThrowsAsync<BusinessRuleException>(() => books.DeleteAsync(book.Id, Ct));
@@ -42,7 +42,7 @@ public sealed class ServiceIntegrationTests : IAsyncLifetime
         Assert.Contains("geçmişi", history.Message, StringComparison.Ordinal);
 
         // Records without loans can be deleted.
-        var spare = await books.AddAsync("Yedek", "Yazar", Ct);
+        var spare = await books.AddAsync("Yedek", "Yazar", cancellationToken: Ct);
         await books.DeleteAsync(spare.Id, Ct);
         Assert.DoesNotContain(await books.GetAllAsync(Ct), b => b.Id == spare.Id);
     }

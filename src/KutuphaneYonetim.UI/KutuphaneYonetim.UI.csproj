@@ -16,11 +16,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="KutuphaneYonetim.UI.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\KutuphaneYonetim.Business\KutuphaneYonetim.Business.csproj" />
     <ProjectReference Include="..\KutuphaneYonetim.Data\KutuphaneYonetim.Data.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.15" />

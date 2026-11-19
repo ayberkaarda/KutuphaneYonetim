@@ -9,6 +9,19 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) esas alınara
 
 ### Eklenenler
 
+- Ödünçler için teslim tarihi (varsayılan süre yeni `Library` ayar bölümünden) ve teslim tarihinden sonraki her gün
+  için gecikme cezası. Üyelerin açık ödünçleri ve ödenmemiş cezaları görünür, cezalar ödendi olarak işaretlenebilir
+  ve ödenmemiş cezası ayarlanan eşiği aşan üye ödünç alamaz. Mevcut ödünçler teslim tarihi olmadan çalışmaya devam eder.
+- Kitaplar (ad, yazar, ISBN; müsait, ödünçte, ayrılmış) ve üyeler (ad; ödenmemiş ceza, açık ödünç) için arama,
+  filtre ve sayfalama. Kitaplara isteğe bağlı, kontrol hanesi doğrulanan ISBN eklendi.
+- Ödünçteki kitaplar için rezervasyon sırası: iade edilen kitap sıradaki ilk üye için ayarlanabilir gün kadar
+  ayrılır, bu sürede başkası ödünç alamaz ve süresi dolan rezervasyon sıradaki üyeye geçer. Üye başına kitap başına
+  tek aktif rezervasyon filtreli benzersiz indeksle korunur.
+- Raporlar ekranı: geciken kitaplar, tarih aralığında en çok ödünç alınanlar ve ödenmemiş cezalar; CSV'ye aktarım
+  (BOM'lu UTF-8, `;`, formül etkisizleştirme, önce geçici dosyaya yazılıp sonra yerine taşınır).
+- Ceza sınırları, rezervasyon sırası ve süre dolumu, arama, raporlar ve CSV, ekran yerleşimi için testler ve özgün
+  veritabanının geri yüklenmiş bir yedeğini yükselten isteğe bağlı bir test.
+
 - Serilog ile `%LOCALAPPDATA%\KutuphaneYonetim\logs` altında günlük dönen dosya günlükleri (son 30 dosya saklanır).
   İstisna mesajları ve kişisel veriler günlüğe yazılmaz.
 - Business katmanında kitap, üye ve ödünç girdileri için merkezi FluentValidation doğrulayıcıları.
@@ -24,6 +37,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) esas alınara
 
 ### Düzeltilenler
 
+- Dosya yazma hataları (örneğin başka bir programda açık olan CSV dosyası) Türkçe bir açıklamayla gösterilir.
 - Beklenmeyen hata pencereleri artık ham (çoğunlukla İngilizce) istisna mesajını göstermiyor; Türkçe bir mesaj
   gösterip günlük dosyasına yönlendiriyor.
 

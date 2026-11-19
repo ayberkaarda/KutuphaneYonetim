@@ -5,7 +5,8 @@ A short threat model for the Kütüphane Yönetim desktop application.
 ## Scope and assets
 
 - **Application:** a single-user Windows Forms client that talks directly to SQL Server.
-- **Assets:** library data (books, loans) and member names (personal data); the connection string;
+- **Assets:** library data (books, loans, reservations, fines) and member names (personal data); the connection string;
+  CSV report files exported by the user;
   log files under `%LOCALAPPDATA%\KutuphaneYonetim\logs`.
 - **Trust boundaries:** the Windows user session that runs the application; the network link to SQL Server;
   the local file system (settings and logs).
@@ -25,6 +26,8 @@ A short threat model for the Kütüphane Yönetim desktop application.
 | Personal data in log files | Exception messages are not logged (only types, error codes, stack traces); member names are never logged | Mitigated |
 | Internal details shown to the user (stack traces, SQL errors) | Users only see fixed Turkish messages; details go to the log file | Mitigated |
 | Data corruption from double lending or deleting records with history | Rules in the Business layer, checked in a transaction, backed by a filtered unique index, restrict foreign keys and a check constraint | Mitigated |
+| Formula injection through exported CSV files (a title such as `=HYPERLINK(...)` opened in a spreadsheet) | Cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'`; cells with `;`, quotes or line breaks are quoted | Mitigated |
+| Half-written or corrupted export files | CSV is written to a temporary file in the target folder and moved over the target only when complete | Mitigated |
 | Oversized or empty input | FluentValidation limits match the column lengths; database columns are length limited and not null | Mitigated |
 | Unauthorised data changes by anyone who can start the app | No in-app authentication; rely on Windows and SQL Server permissions | Accepted (out of scope for this version) |
 | Interception of the database connection | `TrustServerCertificate=True` in the example is for a local server only; use a trusted certificate for remote servers | Documented |

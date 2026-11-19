@@ -11,7 +11,9 @@ namespace KutuphaneYonetim.Data.Tests;
 /// The connection stays open for the lifetime of the instance, which keeps the database alive.
 /// The schema and sample data come from the EF Core model (8 books, 3 members, 2 loans; book 3 is on loan).
 /// </summary>
-public sealed class SqliteDatabase : IAsyncLifetime
+/// <param name="clock">Clock for the business services (default: the system clock).</param>
+/// <param name="policy">Lending rules for the business services (default: <see cref="LibraryPolicy"/> defaults).</param>
+public sealed class SqliteDatabase(TimeProvider? clock = null, LibraryPolicy? policy = null) : IAsyncLifetime
 {
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
     private ServiceProvider? _provider;
@@ -30,7 +32,12 @@ public sealed class SqliteDatabase : IAsyncLifetime
 
         var services = new ServiceCollection();
         services.AddDataAccess(options => options.UseSqlite(_connection));
-        services.AddBusinessServices();
+        if (clock is not null)
+        {
+            services.AddSingleton(clock);
+        }
+
+        services.AddBusinessServices(policy);
         _provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
         await Get<IDatabaseInitializer>().InitializeAsync();

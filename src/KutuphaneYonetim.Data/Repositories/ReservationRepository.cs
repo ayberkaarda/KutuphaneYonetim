@@ -1,0 +1,230 @@
+using KutuphaneYonetim.Data.Persistence;
+using KutuphaneYonetim.Domain.Entities;
+using KutuphaneYonetim.Domain.Repositories;
+using Microsoft.EntityFrameworkCore;
+
+namespace KutuphaneYonetim.Data.Repositories;
+
+internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> contextFactory) : IReservationRepository
+{
+    public async Task<IReadOnlyList<ReservationDetail>> GetActiveDetailsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var query =
+            from reservation in db.Reservations.AsNoTracking().Where(ReservationQueue.Active)
+            join book in db.Books on reservation.BookId equals book.Id
+            join member in db.Members on reservation.MemberId equals member.Id
+            orderby reservation.BookId, reservation.Status descending, reservation.CreatedAt, reservation.Id
+            select new ReservationDetail
+            {
+                Id = reservation.Id,
+                BookId = reservation.BookId,
+                BookTitle = book.Title,
+                MemberId = reservation.MemberId,
+                MemberName = member.FirstName + " " + member.LastName,
+                CreatedAt = reservation.CreatedAt,
+                Status = reservation.Status,
+                ReadyAt = reservation.ReadyAt,
+                ExpiresAt = reservation.ExpiresAt,
+            };
+
+        return await query.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> HasActiveAsync(int bookId, int memberId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Reservations
+            .Where(ReservationQueue.Active)
+            .AnyAsync(r => r.BookId == bookId && r.MemberId == memberId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<bool> HasAnyForBookAsync(int bookId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Reservations.AnyAsync(r => r.BookId == bookId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> HasAnyForMemberAsync(int memberId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Reservations.AnyAsync(r => r.MemberId == memberId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ReserveOutcome> AddAsync(
+        int bookId, int memberId, DateTime createdAt, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // A return cannot slip in between the checks and the insert and leave the queue unserved.
+        await BookLock.AcquireAsync(db, bookId, cancellationToken).ConfigureAwait(false);
+
+        var book = await db.Books.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken).ConfigureAwait(false);
+        if (book is null)
+        {
+            return ReserveOutcome.BookNotFound;
+        }
+
+        var borrowerId = await db.Loans
+            .Where(l => l.BookId == bookId && l.ReturnDate == null)
+            .Select(l => (int?)l.MemberId)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (borrowerId == memberId)
+        {
+            return ReserveOutcome.BorrowedByMember;
+        }
+
+        var held = await db.Reservations
+            .AnyAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Ready, cancellationToken)
+            .ConfigureAwait(false);
+        if (borrowerId is null && book.IsAvailable && !held)
+        {
+            return ReserveOutcome.OnShelf;
+        }
+
+        var alreadyActive = await db.Reservations
+            .Where(ReservationQueue.Active)
+            .AnyAsync(r => r.BookId == bookId && r.MemberId == memberId, cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyActive)
+        {
+            return ReserveOutcome.AlreadyActive;
+        }
+
+        db.Reservations.Add(new Reservation
+        {
+            BookId = bookId,
+            MemberId = memberId,
+            CreatedAt = createdAt,
+            Status = ReservationStatus.Waiting,
+        });
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return ReserveOutcome.Added;
+        }
+        catch (DbUpdateException)
+        {
+            // The filtered unique index rejected a second active reservation of the same member.
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            if (await HasActiveAsync(bookId, memberId, cancellationToken).ConfigureAwait(false))
+            {
+                return ReserveOutcome.AlreadyActive;
+            }
+
+            throw;
+        }
+    }
+
+    public async Task<bool> CancelAsync(
+        int reservationId, DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var bookId = await db.Reservations
+            .Where(r => r.Id == reservationId)
+            .Select(r => (int?)r.BookId)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (bookId is null)
+        {
+            return false;
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await BookLock.AcquireAsync(db, bookId.Value, cancellationToken).ConfigureAwait(false);
+
+        var reservation = await db.Reservations
+            .Where(ReservationQueue.Active)
+            .SingleOrDefaultAsync(r => r.Id == reservationId, cancellationToken)
+            .ConfigureAwait(false);
+        if (reservation is null)
+        {
+            return false;
+        }
+
+        var wasHeld = reservation.Status == ReservationStatus.Ready;
+        reservation.Status = ReservationStatus.Cancelled;
+        reservation.ClosedAt = now;
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Cancelled, fulfilled or expired by another session in the meantime.
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        if (wasHeld)
+        {
+            await ReservationQueue.ServeNextIfOnShelfAsync(db, reservation.BookId, now, nextExpiresAt, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<int> ExpireHoldsAsync(DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var books = await db.Reservations
+            .Where(r => r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+            .Select(r => r.BookId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (books.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // Read again under the book locks: a hold may have been picked up or cancelled in the meantime.
+        await BookLock.AcquireAsync(db, books, cancellationToken).ConfigureAwait(false);
+        var expired = await db.Reservations
+            .Where(r => books.Contains(r.BookId) && r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (expired.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var reservation in expired)
+        {
+            reservation.Status = ReservationStatus.Expired;
+            reservation.ClosedAt = now;
+        }
+
+        try
+        {
+            // Saved before serving the next members so the "one hold per book" index never sees two holds.
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another session is expiring the same holds; it also serves the queue.
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return 0;
+        }
+
+        foreach (var bookId in expired.Select(r => r.BookId).Distinct())
+        {
+            await ReservationQueue.ServeNextIfOnShelfAsync(db, bookId, now, nextExpiresAt, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return expired.Count;
+    }
+}

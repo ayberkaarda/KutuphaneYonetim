@@ -28,6 +28,23 @@ internal static class UiExtensions
         }
     }
 
+    /// <summary>
+    /// Like <see cref="RunAsync"/>, but through <paramref name="operation"/>: while a run is pending a
+    /// new call is ignored and <paramref name="controls"/> stay disabled, so a write cannot be started twice.
+    /// </summary>
+    public static Task<bool> RunExclusiveAsync(
+        this Form form,
+        ExclusiveOperation operation,
+        Func<Task> action,
+        params Control[] controls)
+    {
+        ArgumentNullException.ThrowIfNull(form);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(action);
+
+        return operation.RunAsync(() => form.RunAsync(action), controls);
+    }
+
     /// <summary>Applies Turkish header texts and hides the columns that are not listed.</summary>
     public static void ConfigureColumns(this DataGridView grid, IReadOnlyDictionary<string, string> headers)
     {
@@ -44,6 +61,27 @@ internal static class UiExtensions
             else
             {
                 column.Visible = false;
+            }
+        }
+    }
+
+    /// <summary>Shows the given decimal columns with two decimals (for amounts in TL).</summary>
+    public static void FormatMoneyColumns(this DataGridView grid, params string[] propertyNames) =>
+        grid.FormatColumns("N2", propertyNames);
+
+    /// <summary>Shows the given columns as dates without time.</summary>
+    public static void FormatDateColumns(this DataGridView grid, params string[] propertyNames) =>
+        grid.FormatColumns("d", propertyNames);
+
+    private static void FormatColumns(this DataGridView grid, string format, string[] propertyNames)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            if (propertyNames.Contains(column.DataPropertyName, StringComparer.Ordinal))
+            {
+                column.DefaultCellStyle.Format = format;
             }
         }
     }

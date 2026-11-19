@@ -46,7 +46,60 @@ public sealed class ValidatorTests
     [Fact]
     public void LoanInputValidator_AcceptsPositiveIds()
     {
-        Assert.True(new LoanInputValidator().Validate(new LoanInput(1, 1)).IsValid);
+        var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
+        Assert.True(new LoanInputValidator().Validate(new LoanInput(1, 1, now, now.Date.AddDays(14))).IsValid);
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)] // Due the same day.
+    [InlineData(365, true)]
+    [InlineData(366, false)]
+    public void LoanInputValidator_DueDateBoundaries(int days, bool expectedValid)
+    {
+        var now = new DateTime(2026, 1, 1, 18, 45, 0, DateTimeKind.Unspecified);
+
+        var result = new LoanInputValidator().Validate(new LoanInput(1, 1, now, now.Date.AddDays(days)));
+
+        Assert.Equal(expectedValid, result.IsValid);
+    }
+
+    [Fact]
+    public void LibraryPolicy_Defaults_AreValid()
+    {
+        var policy = new LibraryPolicy();
+
+        Assert.Empty(policy.Validate());
+        Assert.Equal(14, policy.LoanPeriodDays);
+        Assert.Equal(0m, policy.MaxUnpaidFine);
+    }
+
+    [Theory]
+    [InlineData(0, 1, 0, "LoanPeriodDays 1 ile 365 arasında olmalıdır.")]
+    [InlineData(366, 1, 0, "LoanPeriodDays 1 ile 365 arasında olmalıdır.")]
+    [InlineData(14, -0.01, 0, "DailyFine 0 ile 10000 arasında olmalıdır.")]
+    [InlineData(14, 1, -1, "MaxUnpaidFine negatif olamaz.")]
+    [InlineData(14, 1, 0, "ReservationHoldDays 1 ile 30 arasında olmalıdır.", 0)]
+    [InlineData(14, 1, 0, "ReservationHoldDays 1 ile 30 arasında olmalıdır.", 31)]
+    public void LibraryPolicy_InvalidValues_AreReported(int period, double daily, double maxUnpaid, string expected, int holdDays = 3)
+    {
+        var policy = new LibraryPolicy
+        {
+            LoanPeriodDays = period,
+            DailyFine = (decimal)daily,
+            MaxUnpaidFine = (decimal)maxUnpaid,
+            ReservationHoldDays = holdDays,
+        };
+
+        Assert.Equal(expected, Assert.Single(policy.Validate()));
+    }
+
+    [Fact]
+    public void AddBusinessServices_InvalidPolicy_IsRefused()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentException>(() => services.AddBusinessServices(new LibraryPolicy { LoanPeriodDays = 0 }));
     }
 
     [Fact]
@@ -56,6 +109,8 @@ public sealed class ValidatorTests
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IBookRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IMemberRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.ILoanRepository>().Object);
+        services.AddSingleton(new Moq.Mock<Domain.Repositories.IReservationRepository>().Object);
+        services.AddSingleton(new Moq.Mock<Domain.Repositories.IReportRepository>().Object);
         services.AddBusinessServices();
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
@@ -63,5 +118,30 @@ public sealed class ValidatorTests
         Assert.NotNull(provider.GetRequiredService<IBookService>());
         Assert.NotNull(provider.GetRequiredService<IMemberService>());
         Assert.NotNull(provider.GetRequiredService<ILoanService>());
+        Assert.NotNull(provider.GetRequiredService<IReservationService>());
+        Assert.NotNull(provider.GetRequiredService<Reports.IReportService>());
+        Assert.NotNull(provider.GetRequiredService<Reports.ICsvExporter>());
+    }
+
+    [Theory]
+    [InlineData("9789750719387", true)]
+    [InlineData("9786053600008", true)]
+    [InlineData("0306406152", true)]
+    [InlineData("080442957X", true)]
+    [InlineData("9789750719388", false)]
+    [InlineData("0306406151", false)]
+    [InlineData("03064061X2", false)] // X is only allowed as the ISBN-10 check digit.
+    [InlineData("123", false)]
+    public void IsbnFormat_ValidatesCheckDigit(string isbn, bool expectedValid)
+    {
+        Assert.Equal(expectedValid, IsbnFormat.IsValid(isbn));
+    }
+
+    [Fact]
+    public void PagedResult_PageCount_RoundsUpAndIsAtLeastOne()
+    {
+        Assert.Equal(1, new Domain.PagedResult<int>([], 0, 1, 50).PageCount);
+        Assert.Equal(1, new Domain.PagedResult<int>([], 50, 1, 50).PageCount);
+        Assert.Equal(2, new Domain.PagedResult<int>([], 51, 1, 50).PageCount);
     }
 }

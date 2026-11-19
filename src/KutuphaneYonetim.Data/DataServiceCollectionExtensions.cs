@@ -34,6 +34,8 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<IBookRepository, BookRepository>();
         services.AddSingleton<IMemberRepository, MemberRepository>();
         services.AddSingleton<ILoanRepository, LoanRepository>();
+        services.AddSingleton<IReservationRepository, ReservationRepository>();
+        services.AddSingleton<IReportRepository, ReportRepository>();
         return services;
     }
 }

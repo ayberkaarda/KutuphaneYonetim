@@ -41,6 +41,11 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("durum");
 
+                    b.Property<string>("Isbn")
+                        .HasMaxLength(13)
+                        .HasColumnType("nvarchar(13)")
+                        .HasColumnName("isbn");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -56,6 +61,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasName("PK_Kitaplar");
 
                     b.HasIndex(new[] { "Title" }, "IX_Kitaplar_ad");
+
+                    b.HasIndex(new[] { "Isbn" }, "IX_Kitaplar_isbn");
 
                     b.ToTable("Kitaplar", (string)null);
 
@@ -131,6 +138,19 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasColumnType("int")
                         .HasColumnName("kitap_id");
 
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("teslim_tarihi");
+
+                    b.Property<decimal?>("FineAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("ceza_tutari");
+
+                    b.Property<DateTime?>("FinePaidDate")
+                        .HasColumnType("datetime")
+                        .HasColumnName("ceza_odeme_tarihi");
+
                     b.Property<DateTime>("LoanDate")
                         .HasColumnType("datetime")
                         .HasColumnName("odunc_tarihi");
@@ -153,6 +173,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
 
                     b.HasIndex(new[] { "BookId" }, "IX_OduncIslemleri_kitap_id");
 
+                    b.HasIndex(new[] { "DueDate" }, "IX_OduncIslemleri_teslim_tarihi");
+
                     b.HasIndex(new[] { "MemberId" }, "IX_OduncIslemleri_uye_id");
 
                     b.HasIndex(new[] { "BookId" }, "UX_OduncIslemleri_active_kitap")
@@ -161,6 +183,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
 
                     b.ToTable("OduncIslemleri", null, t =>
                         {
+                            t.HasCheckConstraint("CK_OduncIslemleri_ceza_tutari", "[ceza_tutari] IS NULL OR [ceza_tutari] >= 0");
+
                             t.HasCheckConstraint("CK_OduncIslemleri_iade_tarihi", "[iade_tarihi] IS NULL OR [iade_tarihi] >= [odunc_tarihi]");
                         });
 
@@ -236,6 +260,71 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("KutuphaneYonetim.Domain.Entities.Reservation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("rezervasyon_id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("int")
+                        .HasColumnName("kitap_id");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("datetime")
+                        .HasColumnName("kapanis_tarihi");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime")
+                        .HasColumnName("olusturma_tarihi");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime")
+                        .HasColumnName("son_tarih");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("int")
+                        .HasColumnName("uye_id");
+
+                    b.Property<DateTime?>("ReadyAt")
+                        .HasColumnType("datetime")
+                        .HasColumnName("hazir_tarihi");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int")
+                        .HasColumnName("durum");
+
+                    b.HasKey("Id")
+                        .HasName("PK_Rezervasyonlar");
+
+                    b.HasIndex(new[] { "BookId", "Status", "CreatedAt" }, "IX_Rezervasyonlar_kitap_durum");
+
+                    b.HasIndex(new[] { "MemberId" }, "IX_Rezervasyonlar_uye_id");
+
+                    b.HasIndex(new[] { "BookId", "MemberId" }, "UX_Rezervasyonlar_active_kitap_uye")
+                        .IsUnique()
+                        .HasFilter("[durum] IN (0, 1)");
+
+                    b.HasIndex(new[] { "BookId" }, "UX_Rezervasyonlar_hold_kitap")
+                        .IsUnique()
+                        .HasFilter("[durum] = 1");
+
+                    b.ToTable("Rezervasyonlar", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Rezervasyonlar_durum", "[durum] BETWEEN 0 AND 4");
+
+                            t.HasCheckConstraint("CK_Rezervasyonlar_hazir", "[durum] <> 1 OR ([hazir_tarihi] IS NOT NULL AND [son_tarih] IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("KutuphaneYonetim.Domain.Entities.Loan", b =>
                 {
                     b.HasOne("KutuphaneYonetim.Domain.Entities.Book", null)
@@ -251,6 +340,23 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_OduncIslemleri_Uyeler");
+                });
+
+            modelBuilder.Entity("KutuphaneYonetim.Domain.Entities.Reservation", b =>
+                {
+                    b.HasOne("KutuphaneYonetim.Domain.Entities.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Rezervasyonlar_Kitaplar");
+
+                    b.HasOne("KutuphaneYonetim.Domain.Entities.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Rezervasyonlar_Uyeler");
                 });
 #pragma warning restore 612, 618
         }

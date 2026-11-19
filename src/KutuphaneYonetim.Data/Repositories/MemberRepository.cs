@@ -1,4 +1,5 @@
 using KutuphaneYonetim.Data.Persistence;
+using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,52 @@ internal sealed class MemberRepository(IDbContextFactory<LibraryDbContext> conte
             .OrderBy(m => m.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async Task<PagedResult<MemberSummary>> SearchAsync(MemberQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var members = db.Members.AsNoTracking();
+
+        if (!string.IsNullOrEmpty(query.Text))
+        {
+            var pattern = SqlLike.Contains(query.Text);
+            members = members.Where(m =>
+                EF.Functions.Like(m.FirstName, pattern, SqlLike.Escape)
+                || EF.Functions.Like(m.LastName, pattern, SqlLike.Escape)
+                || EF.Functions.Like(m.FirstName + " " + m.LastName, pattern, SqlLike.Escape));
+        }
+
+        members = query.Filter switch
+        {
+            MemberFilter.WithUnpaidFine => members.Where(m =>
+                db.Loans.Any(l => l.MemberId == m.Id && l.FineAmount > 0 && l.FinePaidDate == null)),
+            MemberFilter.WithActiveLoan => members.Where(m =>
+                db.Loans.Any(l => l.MemberId == m.Id && l.ReturnDate == null)),
+            _ => members,
+        };
+
+        var total = await members.CountAsync(cancellationToken).ConfigureAwait(false);
+        var items = await members
+            .OrderBy(m => m.Id)
+            .Skip(SqlLike.Skip(query.Page, query.PageSize))
+            .Take(query.PageSize)
+            .Select(m => new MemberSummary
+            {
+                Id = m.Id,
+                FirstName = m.FirstName,
+                LastName = m.LastName,
+                ActiveLoanCount = db.Loans.Count(l => l.MemberId == m.Id && l.ReturnDate == null),
+                UnpaidFine = db.Loans
+                    .Where(l => l.MemberId == m.Id && l.FineAmount > 0 && l.FinePaidDate == null)
+                    .Sum(l => l.FineAmount) ?? 0m,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return new PagedResult<MemberSummary>(items, total, query.Page, query.PageSize);
     }
 
     public async Task<Member?> GetByIdAsync(int id, CancellationToken cancellationToken = default)

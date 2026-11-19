@@ -2,6 +2,7 @@ using KutuphaneYonetim.Business;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Data.Persistence;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace KutuphaneYonetim.Data.Tests;
@@ -15,6 +16,7 @@ public sealed class LegacyUpgradeTests
 {
     private const string ServerEnvironmentVariable = "KUTUPHANE_TEST_SQLSERVER";
     private const string SkipEnvironmentVariable = "KUTUPHANE_SKIP_SQL_TESTS";
+    private const string BackupEnvironmentVariable = "KUTUPHANE_LEGACY_BACKUP";
     private const string DefaultServer =
         @"Server=localhost\SQLEXPRESS;Integrated Security=True;TrustServerCertificate=True;Connect Timeout=5;";
 
@@ -95,15 +97,24 @@ public sealed class LegacyUpgradeTests
                     "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory WHERE MigrationId LIKE N'%_InitialCreate'",
                     ct));
 
+                // The migrations after the baseline (due dates, fines, ...) were applied on top of it.
+                await using (var context = await provider.GetRequiredService<IDbContextFactory<LibraryDbContext>>().CreateDbContextAsync(ct))
+                {
+                    Assert.Empty(await context.Database.GetPendingMigrationsAsync(ct));
+                }
+
+                Assert.All(allLoans, l => Assert.Null(l.DueDate)); // Legacy loans have no due date.
+
                 // New rows, lending and returning work on the upgraded schema.
-                var book = await books.AddAsync("Yeni Kitap", "Yeni Yazar", ct);
+                var book = await books.AddAsync("Yeni Kitap", "Yeni Yazar", cancellationToken: ct);
                 var member = await members.AddAsync("Yeni", "Uye", ct);
                 Assert.True(book.Id > 12);
                 Assert.True(member.Id > 7);
 
-                await loans.LendAsync(book.Id, member.Id, ct);
-                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 5, ct));
-                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, member.Id, ct));
+                await loans.LendAsync(book.Id, member.Id, cancellationToken: ct);
+                Assert.NotNull((await loans.GetAllAsync(ct)).Single(l => l.BookId == book.Id && l.IsActive).DueDate);
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 5, cancellationToken: ct));
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, member.Id, cancellationToken: ct));
 
                 // The database itself refuses a second open loan for the same book.
                 var duplicate = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsync(
@@ -112,10 +123,29 @@ public sealed class LegacyUpgradeTests
                     ct));
                 Assert.Contains("UX_OduncIslemleri_active_kitap", duplicate.Message, StringComparison.Ordinal);
 
+                // Reservations work on the legacy loan: the new member queues for book 9 (lent to member 7).
+                var reservations = provider.GetRequiredService<IReservationService>();
+                await reservations.ReserveAsync(9, member.Id, ct);
+                await Assert.ThrowsAsync<BusinessRuleException>(() => reservations.ReserveAsync(9, member.Id, ct));
+
                 await loans.ReturnAsync(book.Id, ct);
-                await loans.ReturnAsync(9, ct);
-                await loans.LendAsync(9, member.Id, ct);
+                var legacyReturn = await loans.ReturnAsync(9, ct); // Legacy open loan: no fine.
+                Assert.Equal((0, 0m, "Yeni Uye"), (legacyReturn.OverdueDays, legacyReturn.Fine, legacyReturn.HeldForMemberName));
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, 5, cancellationToken: ct)); // Held.
+                await loans.LendAsync(9, member.Id, cancellationToken: ct);
                 Assert.Equal(9, Assert.Single(await loans.GetAllAsync(ct), l => l.ReturnDate is null).BookId);
+                Assert.Empty(await reservations.GetActiveAsync(ct));
+
+                // The database refuses a second active reservation of the same member for the same book.
+                await ExecuteAsync(
+                    connectionString,
+                    $"INSERT dbo.Rezervasyonlar (kitap_id, uye_id, olusturma_tarihi, durum) VALUES ({book.Id}, 5, GETDATE(), 0)",
+                    ct);
+                var duplicateReservation = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsync(
+                    connectionString,
+                    $"INSERT dbo.Rezervasyonlar (kitap_id, uye_id, olusturma_tarihi, durum) VALUES ({book.Id}, 5, GETDATE(), 0)",
+                    ct));
+                Assert.Contains("UX_Rezervasyonlar_active_kitap_uye", duplicateReservation.Message, StringComparison.Ordinal);
             }
         }
         finally
@@ -126,6 +156,126 @@ public sealed class LegacyUpgradeTests
                 $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}];",
                 CancellationToken.None);
         }
+    }
+
+    /// <summary>
+    /// Restores a backup of the original application's database (path in KUTUPHANE_LEGACY_BACKUP, readable by
+    /// the SQL Server service) into a throw-away database and upgrades it. Skipped when the variable is not set.
+    /// </summary>
+    [Fact]
+    public async Task Initialize_RestoredLegacyBackup_KeepsRowsAndSupportsNewFeatures()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var server = await ResolveServerOrSkipAsync(ct);
+        var backup = Environment.GetEnvironmentVariable(BackupEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(backup))
+        {
+            Assert.Skip($"{BackupEnvironmentVariable} is not set.");
+        }
+
+        var databaseName = "KutuphaneBackupTest_" + Guid.NewGuid().ToString("N");
+        var connectionString = new SqlConnectionStringBuilder(server) { InitialCatalog = databaseName }.ConnectionString;
+
+        await RestoreAsync(server, backup, databaseName, ct);
+        try
+        {
+            const string Snapshot = """
+                SELECT CONCAT(
+                    (SELECT STRING_AGG(CONCAT(kitap_id, ':', ad, ':', yazar), '|') WITHIN GROUP (ORDER BY kitap_id) FROM dbo.Kitaplar), '#',
+                    (SELECT STRING_AGG(CONCAT(uye_id, ':', ad, ':', soyad), '|') WITHIN GROUP (ORDER BY uye_id) FROM dbo.Uyeler), '#',
+                    (SELECT STRING_AGG(CONCAT(odunc_id, ':', kitap_id, ':', uye_id, ':', FORMAT(odunc_tarihi, 's'), ':', FORMAT(iade_tarihi, 's')), '|')
+                        WITHIN GROUP (ORDER BY odunc_id) FROM dbo.OduncIslemleri))
+                """;
+            var before = await TextAsync(connectionString, Snapshot, ct);
+            Assert.Equal(0, await ScalarAsync(connectionString, "SELECT COUNT(*) FROM sys.tables WHERE name = N'__EFMigrationsHistory'", ct));
+
+            await using var provider = BuildServices(connectionString);
+            var initializer = provider.GetRequiredService<IDatabaseInitializer>();
+            await initializer.InitializeAsync(ct);
+            await initializer.InitializeAsync(ct);
+
+            // Every original row is still there, unchanged, and no sample data was added.
+            Assert.Equal(before, await TextAsync(connectionString, Snapshot, ct));
+            await using (var context = await provider.GetRequiredService<IDbContextFactory<LibraryDbContext>>().CreateDbContextAsync(ct))
+            {
+                Assert.Empty(await context.Database.GetPendingMigrationsAsync(ct));
+            }
+
+            var books = provider.GetRequiredService<IBookService>();
+            var members = provider.GetRequiredService<IMemberService>();
+            var loans = provider.GetRequiredService<ILoanService>();
+            var reservations = provider.GetRequiredService<IReservationService>();
+
+            // Old loans have no due date or fine; the new screens can read them.
+            Assert.All(await loans.GetAllAsync(ct), l => Assert.Null(l.FineAmount));
+            Assert.NotNull(await provider.GetRequiredService<Business.Reports.IReportService>().GetOverdueLoansAsync(ct));
+            Assert.All((await members.SearchAsync(new Domain.MemberQuery(), ct)).Items, m => Assert.Equal(0m, m.UnpaidFine));
+
+            // Due date, reservation queue and hold work on the upgraded database.
+            var book = await books.AddAsync("Yedek Kitap", "Yazar", "9789750719387", ct);
+            var first = await members.AddAsync("Birinci", "Okur", ct);
+            var second = await members.AddAsync("İkinci", "Okur", ct);
+            await loans.LendAsync(book.Id, first.Id, cancellationToken: ct);
+            await reservations.ReserveAsync(book.Id, second.Id, ct);
+            var receipt = await loans.ReturnAsync(book.Id, ct);
+            Assert.Equal("İkinci Okur", receipt.HeldForMemberName);
+            await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, first.Id, cancellationToken: ct));
+            await loans.LendAsync(book.Id, second.Id, cancellationToken: ct);
+            Assert.Equal(book.Id, Assert.Single((await books.SearchAsync(new Domain.BookQuery("975071"), ct)).Items).Id);
+        }
+        finally
+        {
+            SqlConnection.ClearAllPools();
+            await ExecuteAsync(
+                server,
+                $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}];",
+                CancellationToken.None);
+        }
+    }
+
+    private static async Task RestoreAsync(string server, string backup, string databaseName, CancellationToken ct)
+    {
+        await using var connection = new SqlConnection(server);
+        await connection.OpenAsync(ct);
+
+        string dataPath;
+        await using (var query = new SqlCommand("SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(400))", connection))
+        {
+            dataPath = (string)(await query.ExecuteScalarAsync(ct))!;
+        }
+
+        var files = new List<(string Logical, string Type)>();
+        await using (var list = new SqlCommand("RESTORE FILELISTONLY FROM DISK = @backup", connection))
+        {
+            list.Parameters.AddWithValue("@backup", backup);
+            await using var reader = await list.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                files.Add((reader.GetString(reader.GetOrdinal("LogicalName")), reader.GetString(reader.GetOrdinal("Type"))));
+            }
+        }
+
+        await using var restore = new SqlCommand { Connection = connection, CommandTimeout = 120 };
+        var moves = new List<string>();
+        for (var i = 0; i < files.Count; i++)
+        {
+            moves.Add($"MOVE @logical{i} TO @physical{i}");
+            restore.Parameters.AddWithValue($"@logical{i}", files[i].Logical);
+            restore.Parameters.AddWithValue(
+                $"@physical{i}", Path.Combine(dataPath, $"{databaseName}_{i}{(files[i].Type == "L" ? ".ldf" : ".mdf")}"));
+        }
+
+        restore.Parameters.AddWithValue("@backup", backup);
+        restore.CommandText = $"RESTORE DATABASE [{databaseName}] FROM DISK = @backup WITH {string.Join(", ", moves)}";
+        await restore.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<string> TextAsync(string connectionString, string sql, CancellationToken ct)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(ct);
+        await using var command = new SqlCommand(sql, connection);
+        return (string)(await command.ExecuteScalarAsync(ct))!;
     }
 
     private static async Task<string> ResolveServerOrSkipAsync(CancellationToken ct)

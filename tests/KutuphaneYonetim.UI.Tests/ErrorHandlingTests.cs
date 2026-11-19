@@ -72,6 +72,13 @@ public sealed class ErrorHandlingTests
     }
 
     [Fact]
+    public void Describe_FileErrors_ExplainLockedFileOrMissingPermission()
+    {
+        Assert.StartsWith("Dosya yazılamadı.", ErrorReporter.Describe(new IOException(PersonalData)), StringComparison.Ordinal);
+        Assert.StartsWith("Dosya yazılamadı.", ErrorReporter.Describe(new UnauthorizedAccessException(PersonalData)), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateLogger_WritesDailyFileInGivenDirectory()
     {
         var directory = Path.Combine(Path.GetTempPath(), "kutuphane-log-test-" + Guid.NewGuid().ToString("N"));
