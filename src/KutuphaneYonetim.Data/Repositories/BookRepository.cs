@@ -40,10 +40,11 @@ internal sealed class BookRepository(IDbContextFactory<LibraryDbContext> context
         if (!string.IsNullOrEmpty(query.Text))
         {
             var pattern = SqlLike.Contains(query.Text);
+            var isbnPattern = SqlLike.Contains(query.IsbnText ?? query.Text);
             books = books.Where(b =>
                 EF.Functions.Like(b.Title, pattern, SqlLike.Escape)
                 || EF.Functions.Like(b.Author, pattern, SqlLike.Escape)
-                || (b.Isbn != null && EF.Functions.Like(b.Isbn, pattern, SqlLike.Escape)));
+                || (b.Isbn != null && EF.Functions.Like(b.Isbn, isbnPattern, SqlLike.Escape)));
         }
 
         books = query.Availability switch

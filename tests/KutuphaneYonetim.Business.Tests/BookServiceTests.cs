@@ -211,11 +211,11 @@ public sealed class BookServiceTests
     }
 
     [Theory]
-    [InlineData("   ", null)]
-    [InlineData("978-975 07", "97897507")] // Looks like an ISBN: separators are dropped.
-    [InlineData("1984", "1984")]
-    [InlineData("Suç ve Ceza", "Suç ve Ceza")]
-    public async Task SearchAsync_TextNormalisation(string text, string? expected)
+    [InlineData("   ", null, null)]
+    [InlineData("978-975 07", "978-975 07", "97897507")] // Looks like an ISBN: separators are dropped for the ISBN only.
+    [InlineData("1984", "1984", null)]
+    [InlineData("Suç ve Ceza", "Suç ve Ceza", null)]
+    public async Task SearchAsync_TextNormalisation(string text, string? expected, string? expectedIsbn)
     {
         BookQuery? sent = null;
         _books.Setup(b => b.SearchAsync(It.IsAny<BookQuery>(), It.IsAny<CancellationToken>()))
@@ -225,6 +225,7 @@ public sealed class BookServiceTests
         await _service.SearchAsync(new BookQuery(text), TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, sent!.Text);
+        Assert.Equal(expectedIsbn, sent.IsbnText);
     }
 
     [Fact]

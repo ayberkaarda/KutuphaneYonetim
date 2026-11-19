@@ -73,6 +73,18 @@ public sealed class SearchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Books_NumericHyphenatedTitle_RemainsSearchable()
+    {
+        var service = _db.Get<IBookService>();
+        var titled = await service.AddAsync("1914-1918 Savaş Günlükleri", "Yazar", cancellationToken: Ct);
+        var withIsbn = await service.AddAsync("Yeni", "Yazar", "9789750719387", Ct);
+
+        // Text that looks like an ISBN still finds titles and authors as typed, and ISBNs without separators.
+        Assert.Equal([titled.Id], (await service.SearchAsync(new BookQuery("1914-1918"), Ct)).Items.Select(b => b.Id));
+        Assert.Equal([withIsbn.Id], (await service.SearchAsync(new BookQuery("978-975-07"), Ct)).Items.Select(b => b.Id));
+    }
+
+    [Fact]
     public async Task Books_WildcardCharactersAreMatchedLiterally()
     {
         var percent = await Books.AddAsync(new Book { Title = "Yüzde 100% Roman", Author = "Yazar", IsAvailable = true }, Ct);

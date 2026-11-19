@@ -15,13 +15,22 @@ internal static class SearchPaging
 
         var text = NormalizeText(query.Text);
 
-        // "978-975-..." finds the stored ISBN, which has no separators.
+        // "978-975-..." also finds the stored ISBN, which has no separators; titles and authors are still
+        // searched with the text as typed ("1914-1918").
+        string? isbnText = null;
         if (text is not null && text.Any(char.IsAsciiDigit) && text.All(c => char.IsAsciiDigit(c) || c is '-' or ' ' or 'x' or 'X'))
         {
-            text = IsbnFormat.Normalize(text);
+            var compact = IsbnFormat.Normalize(text);
+            isbnText = string.Equals(compact, text, StringComparison.Ordinal) ? null : compact;
         }
 
-        return query with { Text = text, Page = Math.Max(1, query.Page), PageSize = Math.Clamp(query.PageSize, 1, MaxPageSize) };
+        return query with
+        {
+            Text = text,
+            IsbnText = isbnText,
+            Page = Math.Max(1, query.Page),
+            PageSize = Math.Clamp(query.PageSize, 1, MaxPageSize),
+        };
     }
 
     public static MemberQuery Normalize(MemberQuery query)

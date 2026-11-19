@@ -34,6 +34,13 @@ public sealed record BookQuery(
     int PageSize = BookQuery.DefaultPageSize)
 {
     public const int DefaultPageSize = 50;
+
+    /// <summary>
+    /// The text compared with stored ISBNs (which have no separators) when it differs from
+    /// <see cref="Text"/>; null to compare ISBNs with <see cref="Text"/> as well. Title and author are always
+    /// compared with <see cref="Text"/> as typed.
+    /// </summary>
+    public string? IsbnText { get; init; }
 }
 
 /// <summary>Which members a member search returns.</summary>
