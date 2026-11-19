@@ -3,7 +3,8 @@
 🇬🇧 [English](README.md) · 🇹🇷 **Türkçe**
 
 .NET 10 ve SQL Server ile geliştirilmiş bir Windows Forms kütüphane yönetim uygulaması. Kitapları, üyeleri ve
-ödünç işlemlerini (ödünç verme / iade, tarihleriyle birlikte) takip eder. Kod Domain, Business, Data ve UI
+ödünç işlemlerini (teslim tarihi ve gecikme cezasıyla) takip eder, ödünçteki kitaplar için rezervasyon sırası tutar
+ve CSV'ye aktarılabilen raporlar üretir. Kod Domain, Business, Data ve UI
 katmanlarına ayrılmıştır; veri erişimi EF Core ile yapılır, veritabanı açılışta otomatik olarak oluşturulur ve güncellenir.
 
 > Uygulamanın arayüzü Türkçedir. Aşağıda ekran ve düğme adları Türkçe etiketiyle, yanında İngilizce karşılığıyla
@@ -13,14 +14,28 @@ katmanlarına ayrılmıştır; veri erişimi EF Core ile yapılır, veritabanı 
 
 ## 📦 Özellikler
 
-- ✅ **Kitaplar** ("Kitaplar"): "Kitap Ekle | Sil" (Add | Delete Book) ekranında kitap listeleme, ekleme ve silme.
-- ✅ **Üyeler** ("Üyeler"): "Üye Ekle | Sil" (Add | Delete Member) ekranında üye listeleme, ekleme ve silme.
-- ✅ **Ödünç** ("Ödünç"): "Kitap Ödünç Al | İade Et" (Lend | Return Book) ekranında üyeye kitap ödünç verme
-  ("Ödünç Al", Lend), iade alma ("İade Et", Return), ödünç ve iade tarihlerini görme.
+- ✅ **Kitaplar** ("Kitaplar"): "Kitap Ekle | Sil" (Add | Delete Book) ekranında isteğe bağlı ISBN ile kitap
+  listeleme, ekleme ve silme. Ad, yazar veya ISBN ile arama; "Müsait", "Ödünçte" ve "Rezervasyon için ayrılmış"
+  filtreleri; sayfalı liste.
+- ✅ **Üyeler** ("Üyeler"): "Üye Ekle | Sil" (Add | Delete Member) ekranında üye listeleme, ekleme ve silme. Ada göre
+  arama, ödenmemiş cezası ya da açık ödüncü olanları süzme, her üyenin açık ödünç sayısını ve ödenmemiş cezasını
+  görme ve ödemeyi kaydetme ("Cezayı Öde").
+- ✅ **Ödünç** ("Ödünç"): "Kitap Ödünç Al | İade Et" (Lend | Return Book) ekranında üyeye teslim tarihiyle
+  ("Teslim Tarihi"; ayarlanan ödünç süresinden önerilir) kitap ödünç verme ("Ödünç Al", Lend), iade alma
+  ("İade Et", Return); ödünç, teslim ve iade tarihlerini, gecikme gününü ve cezayı görme.
+- ✅ **Gecikme cezası**: teslim tarihinden sonra iade edilen kitap için gün başına ayarlanabilir tutarda ceza
+  kaydedilir. Ödenmemiş cezası ayarlanan eşiği aşan üye, ceza ödenene kadar yeni kitap alamaz.
+- ✅ **Rezervasyon** ("Rezervasyonlar"): üyeler ödünçteki bir kitap için sıraya girer. Kitap iade edilince
+  sıradaki ilk üye için ayarlanabilir gün kadar ayrılır ve yalnızca o üye ödünç alabilir; süresinde alınmayan
+  rezervasyon düşer ve sıradaki üyeye geçilir. Bir üyenin aynı kitap için tek aktif rezervasyonu olabilir.
+- ✅ **Raporlar** ("Raporlar"): geciken kitaplar, tarih aralığında en çok ödünç alınanlar ve ödenmemiş cezalar.
+  Ekranda görünen tablo CSV'ye aktarılır ("CSV Dışa Aktar"): BOM'lu UTF-8, ayraç `;`, tablo programında formül
+  olarak çalışabilecek hücreler etkisizleştirilir.
 - ✅ **İş kuralları**: aynı kitap aynı anda iki üyeye ödünç verilemez (işlem içinde kontrol edilir ve filtreli
-  benzersiz indeksle korunur); açık ödüncü ya da ödünç geçmişi olan kitap veya üye silinemez.
+  benzersiz indeksle korunur); açık ödüncü ya da ödünç veya rezervasyon geçmişi olan kitap veya üye silinemez.
 - ✅ **Girdi doğrulama**: kitap adı, yazar ve üye adları kırpılır; boş olamaz ve sütun uzunluğunu aşamaz
-  (kitaplar için 100, üye adları için 50 karakter). Kurallar merkezi FluentValidation doğrulayıcılarındadır.
+  (kitaplar için 100, üye adları için 50 karakter); ISBN geçerli bir ISBN-10 veya ISBN-13 olmalıdır. Kurallar
+  merkezi FluentValidation doğrulayıcılarındadır.
 - ✅ **Otomatik veritabanı kurulumu**: açılışta bekleyen EF Core migration'ları uygulanır; özgün uygulamanın
   oluşturduğu veritabanı verisi korunarak yerinde güncellenir.
 - ✅ **Hata yönetimi ve günlük**: beklenmeyen hatalar merkezi olarak yakalanır ve kısa Türkçe mesajla gösterilir;
@@ -49,8 +64,8 @@ katmanlarına ayrılmıştır; veri erişimi EF Core ile yapılır, veritabanı 
 ```text
 KutuphaneYonetim/
 ├── src/
-│   ├── KutuphaneYonetim.Domain/     # Varlıklar (Book, Member, Loan, LoanDetail) ve repository arayüzleri
-│   ├── KutuphaneYonetim.Business/   # BookService, MemberService, LoanService, Validation/ (FluentValidation)
+│   ├── KutuphaneYonetim.Domain/     # Varlıklar (Book, Member, Loan, Reservation), okuma modelleri, sorgular, repository arayüzleri
+│   ├── KutuphaneYonetim.Business/   # Services/ (kitap, üye, ödünç, rezervasyon), Reports/ (rapor, CSV), Validation/
 │   ├── KutuphaneYonetim.Data/       # EF Core DbContext, yapılandırmalar, Migrations/, eski şema yükseltme, repository'ler
 │   └── KutuphaneYonetim.UI/         # WinForms ekranları, Infrastructure/ (hata, günlük), Program.cs (bağımlılık kurulumu)
 ├── tests/
@@ -98,6 +113,12 @@ yapılandırıldığı için testler SQLite bellek içi veritabanını kullanabi
    {
      "ConnectionStrings": {
        "Kutuphane": "Server=localhost\\SQLEXPRESS;Database=KutuphaneYonetim;Trusted_Connection=True;TrustServerCertificate=True;"
+     },
+     "Library": {
+       "LoanPeriodDays": 14,
+       "DailyFine": 2.50,
+       "MaxUnpaidFine": 0,
+       "ReservationHoldDays": 3
      }
    }
    ```
@@ -115,6 +136,16 @@ yapılandırıldığı için testler SQLite bellek içi veritabanını kullanabi
 > yalnızca yerel geliştirme sunucusu içindir.
 
 Bağlantı cümlesi bulunamazsa uygulama bu seçenekleri anlatan Türkçe bir mesaj gösterip kapanır.
+
+İsteğe bağlı `Library` bölümü ödünç kurallarını belirler (eksik değerler yukarıdaki varsayılanları alır). Geçersiz
+değerlerde uygulama açılışta Türkçe bir mesaj gösterip kapanır.
+
+| Ayar | Varsayılan | Anlamı |
+|---|---|---|
+| `LoanPeriodDays` | 14 | Ödünç verirken önerilen süre (1-365 gün) |
+| `DailyFine` | 2.50 | Geç iade edilen kitap için gün başına ceza |
+| `MaxUnpaidFine` | 0 | Üyenin hâlâ ödünç alabileceği en yüksek ödenmemiş ceza toplamı (0: her ödenmemiş ceza engeller) |
+| `ReservationHoldDays` | 3 | İade edilen kitabın rezervasyon sırasındaki ilk üye için ayrıldığı süre (1-30 gün) |
 
 ### 2. Çalıştırma
 
@@ -154,6 +185,9 @@ Tehdit modeli için [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) dosyasına bak�
 - İş kuralları Business katmanında uygulanır ve veritabanı kısıtlarıyla desteklenir (silmeyi kısıtlayan yabancı
   anahtarlar, iade tarihi kontrol kısıtı, açık ödünçler için filtreli benzersiz indeks).
 - Kullanıcı yalnızca Türkçe mesaj görür; ham istisna metni hiçbir zaman gösterilmez.
+- CSV dışa aktarımında `=`, `+`, `-`, `@`, sekme veya satır başı ile başlayan hücrelerin başına `'` eklenir; böylece
+  uygulamaya yazılan veriler tablo programında formül olarak çalışamaz. Dosya önce hedef klasördeki geçici bir
+  dosyaya yazılır, sonra hedefin üzerine taşınır.
 - Uygulamada oturum açma veya rol yoktur: uygulamayı başlatabilen herkes tüm verileri değiştirebilir. Veritabanı
   erişimi bağlantı cümlesindeki SQL Server hesabıyla sınırlanır.
 
@@ -177,9 +211,14 @@ Tehdit modeli için [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) dosyasına bak�
 
 1. "Kitaplar" (Books) ekranında kitap ekleyip silin; adı boş bir kitap eklemeyi deneyin.
 2. "Üyeler" (Members) ekranında üye ekleyip silin.
-3. "Ödünç" (Loans) ekranında bir kitabı ödünç verip iade alın; tablodaki tarihleri kontrol edin.
+3. "Ödünç" (Loans) ekranında bir kitabı ödünç verip iade alın; tablodaki tarihleri kontrol edin. Teslim tarihi
+   bugün olan bir ödünç verin, sistem tarihini ileri alıp (ya da küçük bir `LoanPeriodDays` ile) geç iade edin:
+   ceza gösterilir ve kaydedilir; ceza "Üyeler" (Members) ekranında ödenene kadar üye yeni kitap alamaz.
 4. Aynı kitabı iki kez ödünç vermeyi ve kitabını iade etmemiş bir üyeyi silmeyi deneyin: ikisi de uyarıyla reddedilir.
-5. SQL Server'ı durdurun; anlaşılır bir Türkçe hata gösterildiğini ve ayrıntının günlük dosyasına yazıldığını kontrol edin.
+5. "Rezervasyonlar" (Reservations) ekranında ödünçteki bir kitabı iki üye için rezerve edin, kitabı iade alın ve
+   yalnızca ilk üyenin ödünç alabildiğini kontrol edin.
+6. "Kitaplar" ve "Üyeler" ekranlarında arayıp süzün; "Raporlar" (Reports) ekranında her raporu gösterip CSV'ye aktarın.
+7. SQL Server'ı durdurun; anlaşılır bir Türkçe hata gösterildiğini ve ayrıntının günlük dosyasına yazıldığını kontrol edin.
 
 ### Otomatik testler
 
@@ -189,13 +228,15 @@ dotnet test -c Release
 
 | Proje | Tür | Kapsam | Sonuç (`-c Release`) |
 |---|---|---|---|
-| `tests/KutuphaneYonetim.Business.Tests` | Birim | Ödünç çakışması, iade, silme kuralları, doğrulama mesajları ve sınırlar (xUnit + Moq) | 42 başarılı |
-| `tests/KutuphaneYonetim.Data.Tests` | Entegrasyon | SQLite bellek içi (`Data Source=:memory:`) üzerinde repository ve servisler; SQL Server'da eski şema yükseltme | 13 başarılı, 1 atlandı |
-| `tests/KutuphaneYonetim.UI.Tests` | Birim | Örnek yapılandırma, Türkçe hata mesajları, günlük temizleme, günlük dosyası oluşturma | 8 başarılı |
+| `tests/KutuphaneYonetim.Business.Tests` | Birim | Ödünç çakışması, teslim tarihi, ceza hesabı ve eşiği, rezervasyon kuralları, arama normalleştirme, raporlar, CSV kaçışları ve dosya değiştirme, doğrulama (xUnit + Moq) | 163 başarılı |
+| `tests/KutuphaneYonetim.Data.Tests` | Entegrasyon | SQLite bellek içi (`Data Source=:memory:`) üzerinde repository ve servisler: ceza, arama ve sayfalama, rezervasyon sırası, raporlar ve CSV; SQL Server'da eski şema yükseltme | 52 başarılı, 2 atlandı |
+| `tests/KutuphaneYonetim.UI.Tests` | Birim | Örnek yapılandırma ve Library ayarları, Türkçe hata mesajları, günlük temizleme, ekran yerleşimi (formlar gösterilmeden kurulur) | 22 başarılı |
 
-Atlanan test, SQL Server gerektiren eski şema yükseltme testidir. `KUTUPHANE_TEST_SQLSERVER` değişkenindeki
-sunucuda (varsayılan: Windows kimlik doğrulamalı yerel SQL Express) geçici bir veritabanı kullanır;
-`KUTUPHANE_SKIP_SQL_TESTS=1` tanımlıysa ya da sunucuya ulaşılamıyorsa atlanır. Geçici veritabanı sonra silinir.
+Atlanan testler SQL Server gerektirir. `KUTUPHANE_TEST_SQLSERVER` değişkenindeki sunucuda (varsayılan: Windows
+kimlik doğrulamalı yerel SQL Express) geçici bir veritabanı kullanırlar; `KUTUPHANE_SKIP_SQL_TESTS=1` tanımlıysa ya
+da sunucuya ulaşılamıyorsa atlanırlar. Geçici veritabanları sonra silinir. İlki özgün şemayı betikle kurar; ikincisi
+özgün veritabanının gerçek bir yedeğini geri yükler ve yalnızca `KUTUPHANE_LEGACY_BACKUP` SQL Server hizmetinin
+okuyabildiği böyle bir `.bak` dosyasını gösteriyorsa çalışır.
 
 SQLite'ta şema migration yerine modelden (`EnsureCreated`) oluşturulur ve satır sürümleri üretilmez. SQL Server testi
 yalnızca filtrelenmiş benzersiz indeksin aynı kitap için ikinci bir açık ödünç kaydını reddettiğini doğrular;
@@ -229,8 +270,11 @@ yanına koyun ya da `KUTUPHANE_CONNECTION` değişkenini tanımlayın.
 - `Program.cs` bağımlılıkların kurulduğu yerdir: yapılandırma, DI, günlük ve genel `ThreadException` /
   `UnhandledException` işleyicileri burada hazırlanır.
 - İş kuralı ihlalleri Türkçe mesajlı `BusinessRuleException` fırlatır; arayüz bunu uyarı olarak gösterir.
-- Doğrulayıcılar (`BookInputValidator`, `MemberInputValidator`, `LoanInputValidator`)
+- Doğrulayıcılar (`BookInputValidator`, `MemberInputValidator`, `LoanInputValidator`, `LibraryPolicyValidator`)
   `KutuphaneYonetim.Business/Validation` klasöründedir ve ilk hatada durur; kullanıcı her seferinde tek mesaj görür.
+- Ödünç kuralları `LibraryPolicy` sınıfından (`Library` ayar bölümü) gelir ve `AddBusinessServices` metoduna verilir.
+- Teslim tarihi, ceza ve rezervasyon sonraki migration'larla boş bırakılabilir sütunlar ve yeni bir tablo olarak
+  eklendi; özgün uygulamanın veritabanı önce yerinde yükseltilir, sonra diğerleri gibi migration'ları alır.
 
 ---
 

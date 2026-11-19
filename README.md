@@ -3,7 +3,8 @@
 🇬🇧 **English** · 🇹🇷 [Türkçe](README.tr.md)
 
 A Windows Forms library management application built with .NET 10 and SQL Server. It tracks books,
-members and loans (lend / return with dates). The code is split into Domain, Business, Data and UI
+members and loans (with due dates and late return fines), keeps a reservation queue for books on loan and
+produces reports that can be exported to CSV. The code is split into Domain, Business, Data and UI
 layers; database access uses EF Core, and the database is created and migrated automatically on startup.
 
 > The application's user interface is in Turkish. Screen and button names below are given with their
@@ -13,14 +14,29 @@ layers; database access uses EF Core, and the database is created and migrated a
 
 ## 📦 Features
 
-- ✅ **Books** ("Kitaplar"): list, add and delete books on the "Kitap Ekle | Sil" (Add | Delete Book) screen.
-- ✅ **Members** ("Üyeler"): list, add and delete members on the "Üye Ekle | Sil" (Add | Delete Member) screen.
-- ✅ **Loans** ("Ödünç"): lend a book to a member ("Ödünç Al", Lend), take it back ("İade Et", Return), and see
-  loan and return dates on the "Kitap Ödünç Al | İade Et" (Lend | Return Book) screen.
+- ✅ **Books** ("Kitaplar"): list, add and delete books on the "Kitap Ekle | Sil" (Add | Delete Book) screen, with an
+  optional ISBN. Search by title, author or ISBN and filter by "Müsait" (available), "Ödünçte" (on loan) or
+  "Rezervasyon için ayrılmış" (held for a reservation); the list is paged.
+- ✅ **Members** ("Üyeler"): list, add and delete members on the "Üye Ekle | Sil" (Add | Delete Member) screen. Search
+  by name, filter members with unpaid fines or open loans, see each member's open loans and unpaid fines and record
+  a payment ("Cezayı Öde", Pay fine).
+- ✅ **Loans** ("Ödünç"): lend a book to a member ("Ödünç Al", Lend) with a due date ("Teslim Tarihi"; suggested from
+  the configured loan period), take it back ("İade Et", Return), and see loan, due and return dates, overdue days
+  and fines on the "Kitap Ödünç Al | İade Et" (Lend | Return Book) screen.
+- ✅ **Late fines**: a book returned after its due date gets a fine of a configurable amount per day. A member whose
+  unpaid fines exceed a configurable threshold cannot borrow until the fines are paid.
+- ✅ **Reservations** ("Rezervasyonlar"): members queue for a book that is on loan. When it comes back it is held for
+  the first member in the queue for a configurable number of days and only that member can borrow it; a hold that
+  is not picked up in time expires and the next member is served. A member can have one active reservation per book.
+- ✅ **Reports** ("Raporlar"): overdue books, most borrowed books in a date range and unpaid fines. The table shown on
+  screen is exported to CSV ("CSV Dışa Aktar", Export CSV): UTF-8 with BOM, `;` as separator, and cells that a
+  spreadsheet would run as a formula are neutralised.
 - ✅ **Business rules**: a book cannot be lent to two members at the same time (checked in a transaction and
-  enforced by a filtered unique index); a book or member with an open loan, or with loan history, cannot be deleted.
+  enforced by a filtered unique index); a book or member with an open loan, or with loan or reservation history,
+  cannot be deleted.
 - ✅ **Input validation**: titles, authors and names are trimmed and must be present and within the column
-  length (100 characters for books, 50 for member names). The rules live in central FluentValidation validators.
+  length (100 characters for books, 50 for member names); an ISBN must be a valid ISBN-10 or ISBN-13. The rules
+  live in central FluentValidation validators.
 - ✅ **Automatic database setup**: pending EF Core migrations are applied on startup; a database created by the
   original application is upgraded in place and keeps its data.
 - ✅ **Error handling and logging**: unexpected errors are caught globally and shown as short Turkish messages;
@@ -49,8 +65,8 @@ layers; database access uses EF Core, and the database is created and migrated a
 ```text
 KutuphaneYonetim/
 ├── src/
-│   ├── KutuphaneYonetim.Domain/     # Entities (Book, Member, Loan, LoanDetail) and repository contracts
-│   ├── KutuphaneYonetim.Business/   # BookService, MemberService, LoanService, Validation/ (FluentValidation)
+│   ├── KutuphaneYonetim.Domain/     # Entities (Book, Member, Loan, Reservation), read models, queries, repository contracts
+│   ├── KutuphaneYonetim.Business/   # Services/ (books, members, loans, reservations), Reports/ (reports, CSV), Validation/
 │   ├── KutuphaneYonetim.Data/       # EF Core DbContext, configurations, Migrations/, legacy upgrade, repositories
 │   └── KutuphaneYonetim.UI/         # WinForms screens, Infrastructure/ (errors, logging), Program.cs (composition root)
 ├── tests/
@@ -98,6 +114,12 @@ Provide a connection string named `Kutuphane`. Any of the following works (later
    {
      "ConnectionStrings": {
        "Kutuphane": "Server=localhost\\SQLEXPRESS;Database=KutuphaneYonetim;Trusted_Connection=True;TrustServerCertificate=True;"
+     },
+     "Library": {
+       "LoanPeriodDays": 14,
+       "DailyFine": 2.50,
+       "MaxUnpaidFine": 0,
+       "ReservationHoldDays": 3
      }
    }
    ```
@@ -115,6 +137,16 @@ Provide a connection string named `Kutuphane`. Any of the following works (later
 > local development server only.
 
 If no connection string is found, the application shows a Turkish message explaining these options and exits.
+
+The optional `Library` section sets the lending rules (missing values use the defaults shown above). Invalid values
+stop the application at startup with a Turkish message.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `LoanPeriodDays` | 14 | Suggested loan period when lending (1-365 days) |
+| `DailyFine` | 2.50 | Fine per day a book is returned late |
+| `MaxUnpaidFine` | 0 | Largest unpaid fine total with which a member may still borrow (0: any unpaid fine blocks) |
+| `ReservationHoldDays` | 3 | How long a returned book is held for the first member in its reservation queue (1-30 days) |
 
 ### 2. Running
 
@@ -155,6 +187,9 @@ See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the threat model.
 - Business rules are enforced in the Business layer and backed by database constraints (foreign keys with
   restrict, check constraint on return date, filtered unique index on open loans).
 - Users only see Turkish messages; raw exception text is never shown.
+- CSV exports neutralise cells that start with `=`, `+`, `-`, `@`, tab or carriage return (prefixed with `'`), so
+  data typed into the application cannot run as a spreadsheet formula. The file is written to a temporary file in
+  the target folder and then moved over the target.
 - The application has no sign-in or roles: anyone who can start it can change all data. Database access
   is controlled by the SQL Server account in the connection string.
 
@@ -178,9 +213,14 @@ See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the threat model.
 
 1. Add and delete a book on "Kitaplar" (Books); try adding one with an empty title.
 2. Add and delete a member on "Üyeler" (Members).
-3. On "Ödünç" (Loans), lend a book and return it; check the dates in the grid.
+3. On "Ödünç" (Loans), lend a book and return it; check the dates in the grid. Lend a book with today as the due
+   date, change the system date (or use a small `LoanPeriodDays`) and return it late: the fine is shown and
+   recorded, and the member cannot borrow again until the fine is paid on "Üyeler" (Members).
 4. Try to lend the same book twice, and to delete a member who has not returned a book: both are refused with a warning.
-5. Stop SQL Server and check that a friendly Turkish error is shown and the details land in the log file.
+5. On "Rezervasyonlar" (Reservations), reserve a book that is on loan for two members, return it and check that only
+   the first member can borrow it.
+6. Search and filter on "Kitaplar" and "Üyeler"; on "Raporlar" (Reports), show each report and export it to CSV.
+7. Stop SQL Server and check that a friendly Turkish error is shown and the details land in the log file.
 
 ### Automated tests
 
@@ -190,13 +230,15 @@ dotnet test -c Release
 
 | Project | Type | Scope | Result (`-c Release`) |
 |---|---|---|---|
-| `tests/KutuphaneYonetim.Business.Tests` | Unit | Lending conflicts, returns, delete rules, validation messages and limits (xUnit + Moq) | 42 passed |
-| `tests/KutuphaneYonetim.Data.Tests` | Integration | Repositories and services on SQLite in-memory (`Data Source=:memory:`); legacy database upgrade on SQL Server | 13 passed, 1 skipped |
-| `tests/KutuphaneYonetim.UI.Tests` | Unit | Example configuration, Turkish error messages, log sanitising, log file creation | 8 passed |
+| `tests/KutuphaneYonetim.Business.Tests` | Unit | Lending conflicts, due dates, fine calculation and threshold, reservation rules, search normalisation, reports, CSV escaping and file replacement, validation (xUnit + Moq) | 163 passed |
+| `tests/KutuphaneYonetim.Data.Tests` | Integration | Repositories and services on SQLite in-memory (`Data Source=:memory:`): fines, search and paging, reservation queue and holds, reports and CSV; legacy database upgrade on SQL Server | 52 passed, 2 skipped |
+| `tests/KutuphaneYonetim.UI.Tests` | Unit | Example configuration and Library settings, Turkish error messages, log sanitising, screen layout (forms built without being shown) | 22 passed |
 
-The skipped test is the legacy upgrade test, which needs SQL Server. It uses a throw-away database on the server
-in `KUTUPHANE_TEST_SQLSERVER` (default: local SQL Express with Windows authentication) and is skipped when
-`KUTUPHANE_SKIP_SQL_TESTS=1` is set or no server is reachable. The temporary database is dropped afterwards.
+The skipped tests need SQL Server. They use a throw-away database on the server in `KUTUPHANE_TEST_SQLSERVER`
+(default: local SQL Express with Windows authentication) and are skipped when `KUTUPHANE_SKIP_SQL_TESTS=1` is set
+or no server is reachable. The temporary databases are dropped afterwards. The first rebuilds the original schema
+by script; the second restores a real backup of the original database and runs only when `KUTUPHANE_LEGACY_BACKUP`
+points to such a `.bak` file that the SQL Server service can read.
 
 On SQLite the schema is created from the model (`EnsureCreated`) instead of migrations, and row versions are
 not generated. The SQL Server test only verifies that the filtered unique index rejects a second open loan for
@@ -230,8 +272,11 @@ or set `KUTUPHANE_CONNECTION`.
 - `Program.cs` is the composition root: configuration, DI, logging and the global `ThreadException` /
   `UnhandledException` handlers are set up there.
 - Business rule violations raise `BusinessRuleException` with a Turkish message, which the UI shows as a warning.
-- Validators (`BookInputValidator`, `MemberInputValidator`, `LoanInputValidator`) live in
+- Validators (`BookInputValidator`, `MemberInputValidator`, `LoanInputValidator`, `LibraryPolicyValidator`) live in
   `KutuphaneYonetim.Business/Validation` and stop at the first failure, so the user sees one message at a time.
+- Lending rules come from `LibraryPolicy` (the `Library` settings section), passed to `AddBusinessServices`.
+- Due dates, fines and reservations were added by later migrations with nullable columns and a new table, so a
+  database created by the original application is upgraded in place first and then migrated like any other.
 
 ---
 
