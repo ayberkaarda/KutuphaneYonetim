@@ -1,8 +1,8 @@
-﻿using System.ComponentModel;
-using System.Globalization;
+﻿using System.Globalization;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
+using KutuphaneYonetim.UI.Theming;
 
 namespace KutuphaneYonetim.UI
 {
@@ -10,7 +10,7 @@ namespace KutuphaneYonetim.UI
     /// Lends books to members with a due date, takes returns (recording late fines) and shows the
     /// loan history with dates, overdue days and fines.
     /// </summary>
-    public partial class OduncForm : Form
+    public sealed class OduncForm : AppDialog
     {
         private static readonly Dictionary<string, string> ColumnHeaders = new()
         {
@@ -25,8 +25,12 @@ namespace KutuphaneYonetim.UI
             [nameof(LoanDetail.OverdueDays)] = "Gecikme (Gün)",
             [nameof(LoanDetail.EstimatedFine)] = "Biriken Ceza (TL)",
             [nameof(LoanDetail.FineAmount)] = "Ceza (TL)",
-            [nameof(LoanDetail.FinePaidDate)] = "Ceza Ödeme Tarihi",
+            [nameof(LoanDetail.FinePaidDate)] = "Ödeme Tarihi",
         };
+
+        /// <summary>Columns that turn to the danger color while a loan is overdue.</summary>
+        private static readonly HashSet<string> OverdueColumns =
+            [nameof(LoanDetail.DueDate), nameof(LoanDetail.OverdueDays), nameof(LoanDetail.EstimatedFine)];
 
         private readonly IBookService _bookService;
         private readonly IMemberService _memberService;
@@ -36,25 +40,53 @@ namespace KutuphaneYonetim.UI
         private readonly RequestSequence _listRequests = new();
         private int? _selectedBookId;
 
+        private readonly ThemedComboBox cmbKitaplar = FormLayout.Picker(nameof(cmbKitaplar), 260, "Müsait kitap seçin");
+        private readonly ThemedComboBox cmbUyeler = FormLayout.Picker(nameof(cmbUyeler), 220, "Üye seçin");
+        private readonly DateTimePicker dtpTeslim = FormLayout.DatePicker(nameof(dtpTeslim));
+        private readonly ThemedGrid dataGridView1 = new() { Name = nameof(dataGridView1), AccessibleName = "Ödünç kayıtları" };
+        private readonly ThemedButton btnOduncAl = FormLayout.Button(nameof(btnOduncAl), "Ödünç Ver", ButtonKind.Primary);
+        private readonly ThemedButton btnIadeEt = FormLayout.Button(nameof(btnIadeEt), "Seçili Kitabı İade Al");
+        private readonly Label lblListeOzet = FormLayout.Hint(string.Empty);
+
         public OduncForm(IBookService bookService, IMemberService memberService, ILoanService loanService)
+            : base("Ödünç ve İade", "Müsait kitabı teslim tarihiyle ödünç verin; iadede gecikme cezası kendiliğinden kaydedilir.", Glyphs.Lending, new Size(1200, 720), new Size(960, 600))
         {
             _bookService = bookService;
             _memberService = memberService;
             _loanService = loanService;
-            InitializeComponent();
-        }
+            BuildLayout();
 
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        internal UserPrompts Prompts { get; set; } = UserPrompts.Default;
+            Load += async (_, _) =>
+            {
+                PrepareDueDate();
+                await this.RunAsync(LoadAsync);
+            };
+            btnOduncAl.Click += async (_, _) => await LendAsync();
+            btnIadeEt.Click += async (_, _) => await ReturnAsync();
+            dataGridView1.CellClick += (_, e) => SelectRow(e.RowIndex);
+            dataGridView1.CurrentCellChanged += (_, _) =>
+            {
+                // Arrow keys choose a row too, but only while the user is in the list.
+                if (dataGridView1.Focused && dataGridView1.CurrentRow is { } row)
+                {
+                    SelectRow(row.Index);
+                }
+            };
+            dataGridView1.CellFormatting += HighlightOverdue;
+        }
 
         private Control[] WriteButtons => [btnOduncAl, btnIadeEt];
 
-        private async void OduncForm_Load(object sender, EventArgs e)
+        /// <summary>The due date starts at the suggested loan period and cannot lie in the past.</summary>
+        internal void PrepareDueDate()
         {
             dtpTeslim.MinDate = DateTime.Today;
             dtpTeslim.Value = _loanService.GetDefaultDueDate();
-
-            await this.RunAsync(LoadAsync);
+            var days = (dtpTeslim.Value.Date - DateTime.Today).Days;
+            SetFooterNote(string.Format(
+                CultureInfo.CurrentCulture,
+                "Önerilen ödünç süresi {0} gün; teslim tarihinden sonraki her gün için ceza işler. İade için listeden açık bir kaydı seçin.",
+                days));
         }
 
         /// <summary>Initial load of the pickers and the loan list.</summary>
@@ -88,19 +120,31 @@ namespace KutuphaneYonetim.UI
         private async Task ListLoansAsync()
         {
             var request = _listRequests.Next();
-            var loans = await _loanService.GetAllAsync();
-            if (!_listRequests.IsLatest(request))
+            dataGridView1.IsLoading = true;
+            try
             {
-                return;
+                var loans = await _loanService.GetAllAsync();
+                if (!_listRequests.IsLatest(request))
+                {
+                    return;
+                }
+
+                dataGridView1.DataSource = loans;
+                dataGridView1.ConfigureColumns(ColumnHeaders);
+                dataGridView1.FormatMoneyColumns(nameof(LoanDetail.EstimatedFine), nameof(LoanDetail.FineAmount));
+                dataGridView1.FormatDateColumns(
+                    nameof(LoanDetail.LoanDate), nameof(LoanDetail.DueDate), nameof(LoanDetail.ReturnDate), nameof(LoanDetail.FinePaidDate));
+                dataGridView1.FitWideColumns(130, 56,nameof(LoanDetail.BookTitle), nameof(LoanDetail.MemberName));
+                ShowSummary(loans);
             }
-
-            dataGridView1.DataSource = loans;
-            dataGridView1.ConfigureColumns(ColumnHeaders);
-            dataGridView1.FormatMoneyColumns(nameof(LoanDetail.EstimatedFine), nameof(LoanDetail.FineAmount));
-            dataGridView1.FormatDateColumns(nameof(LoanDetail.DueDate));
+            finally
+            {
+                if (_listRequests.IsLatest(request))
+                {
+                    dataGridView1.IsLoading = false;
+                }
+            }
         }
-
-        private async void btnOduncAl_Click(object sender, EventArgs e) => await LendAsync();
 
         /// <summary>Lends the chosen book; a second click while the first loan is pending is ignored.</summary>
         internal Task LendAsync() => this.RunExclusiveAsync(
@@ -113,14 +157,17 @@ namespace KutuphaneYonetim.UI
                     return;
                 }
 
-                await _loanService.LendAsync(bookId, memberId, dtpTeslim.Value.Date);
+                var title = cmbKitaplar.GetItemText(cmbKitaplar.SelectedItem);
+                var member = cmbUyeler.GetItemText(cmbUyeler.SelectedItem);
+                var due = dtpTeslim.Value.Date;
+                await _loanService.LendAsync(bookId, memberId, due);
                 await LoadComboBoxesAsync();
                 await ListLoansAsync();
                 dtpTeslim.Value = _loanService.GetDefaultDueDate();
+                Prompts.Inform(string.Format(
+                    CultureInfo.CurrentCulture, "\"{0}\" {1} adlı üyeye ödünç verildi; teslim tarihi {2:d}.", title, member, due));
             },
             WriteButtons);
-
-        private async void btnIadeEt_Click(object sender, EventArgs e) => await ReturnAsync();
 
         /// <summary>Takes the selected book back; a second click while the first return is pending is ignored.</summary>
         internal Task ReturnAsync() => this.RunExclusiveAsync(
@@ -155,7 +202,7 @@ namespace KutuphaneYonetim.UI
             {
                 text += string.Format(
                     CultureInfo.CurrentCulture,
-                    "\n\nKitap rezervasyon sırasındaki {0} için {1:g} tarihine kadar ayrıldı.",
+                    "\nKitap rezervasyon sırasındaki {0} için {1:g} tarihine kadar ayrıldı.",
                     member,
                     until);
             }
@@ -163,15 +210,67 @@ namespace KutuphaneYonetim.UI
             return text;
         }
 
-        private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
+        /// <summary>Makes the book of <paramref name="loan"/> (a row of the list) the one to return.</summary>
+        internal void SelectLoan(LoanDetail loan)
         {
-            if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is LoanDetail loan)
+            _selectedBookId = loan.BookId;
+            dataGridView1.SelectedItem = loan;
+        }
+
+        private void SelectRow(int rowIndex)
+        {
+            if (rowIndex >= 0 && dataGridView1.Rows[rowIndex].DataBoundItem is LoanDetail loan)
             {
                 SelectLoan(loan);
             }
         }
 
-        /// <summary>Makes the book of <paramref name="loan"/> (a row of the list) the one to return.</summary>
-        internal void SelectLoan(LoanDetail loan) => _selectedBookId = loan.BookId;
+        private void ShowSummary(IReadOnlyList<LoanDetail> loans)
+        {
+            var open = loans.Count(l => l.IsActive);
+            var overdue = loans.Count(l => l.IsActive && l.OverdueDays > 0);
+            lblListeOzet.Text = string.Format(CultureInfo.CurrentCulture, "{0} kayıt · {1} açık ödünç · {2} gecikmede", loans.Count, open, overdue);
+        }
+
+        /// <summary>An open loan past its due date shows its due date, delay and fine in the danger color.</summary>
+        private void HighlightOverdue(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.CellStyle is null
+                || !OverdueColumns.Contains(dataGridView1.Columns[e.ColumnIndex].DataPropertyName)
+                || dataGridView1.Rows[e.RowIndex].DataBoundItem is not LoanDetail { IsActive: true, OverdueDays: > 0 })
+            {
+                return;
+            }
+
+            e.CellStyle.ForeColor = Theme.Current.Danger;
+            e.CellStyle.SelectionForeColor = Theme.Current.Danger;
+            e.CellStyle.Font = Theme.Fonts.BodyStrong;
+        }
+
+        private void BuildLayout()
+        {
+            Name = nameof(OduncForm);
+
+            var fields = FormLayout.FieldRow(
+                "lendFields",
+                (FormLayout.Field("&Kitap", cmbKitaplar), 55),
+                (FormLayout.Field("Ü&ye", cmbUyeler), 45),
+                (FormLayout.Field("&Teslim tarihi", dtpTeslim), 0),
+                (FormLayout.FieldAction(btnOduncAl), 0));
+            var lendCard = FormLayout.Card("lendCard", "Ödünç ver", fields, fill: false);
+
+            btnIadeEt.Margin = Padding.Empty;
+            lblListeOzet.Name = nameof(lblListeOzet);
+            lblListeOzet.Margin = new Padding(Spacing.M, 0, 0, 0);
+            var actions = FormLayout.Bar("actionBar", (btnIadeEt, false), (lblListeOzet, true));
+            actions.Margin = new Padding(0, Spacing.M, 0, 0);
+            dataGridView1.EmptyText = "Henüz ödünç kaydı yok. Yukarıdan bir kitabı ödünç verdiğinizde burada görünür.";
+            var listCard = FormLayout.Card("listCard", "Ödünç kayıtları", FormLayout.Page((dataGridView1, true), (actions, false)));
+
+            Content.Controls.Add(FormLayout.Page((lendCard, false), (listCard, true)));
+            SetFooterNote("İade almak için listeden açık bir ödünç kaydı seçin.");
+            SetFooterButtons(CreateCloseButton());
+            FinishLayout();
+        }
     }
 }
