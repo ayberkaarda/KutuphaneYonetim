@@ -1,10 +1,14 @@
-﻿using KutuphaneYonetim.Business.Services;
+﻿using System.Globalization;
+using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
 
 namespace KutuphaneYonetim.UI
 {
-    /// <summary>Lends books to members, takes returns and shows the loan history with dates.</summary>
+    /// <summary>
+    /// Lends books to members with a due date, takes returns (recording late fines) and shows the
+    /// loan history with dates, overdue days and fines.
+    /// </summary>
     public partial class OduncForm : Form
     {
         private static readonly Dictionary<string, string> ColumnHeaders = new()
@@ -15,7 +19,12 @@ namespace KutuphaneYonetim.UI
             [nameof(LoanDetail.MemberId)] = "Üye No",
             [nameof(LoanDetail.MemberName)] = "Üye",
             [nameof(LoanDetail.LoanDate)] = "Ödünç Tarihi",
+            [nameof(LoanDetail.DueDate)] = "Teslim Tarihi",
             [nameof(LoanDetail.ReturnDate)] = "İade Tarihi",
+            [nameof(LoanDetail.OverdueDays)] = "Gecikme (Gün)",
+            [nameof(LoanDetail.EstimatedFine)] = "Biriken Ceza (TL)",
+            [nameof(LoanDetail.FineAmount)] = "Ceza (TL)",
+            [nameof(LoanDetail.FinePaidDate)] = "Ceza Ödeme Tarihi",
         };
 
         private readonly IBookService _bookService;
@@ -33,6 +42,9 @@ namespace KutuphaneYonetim.UI
 
         private async void OduncForm_Load(object sender, EventArgs e)
         {
+            dtpTeslim.MinDate = DateTime.Today;
+            dtpTeslim.Value = _loanService.GetDefaultDueDate();
+
             await this.RunAsync(async () =>
             {
                 await LoadComboBoxesAsync();
@@ -55,6 +67,8 @@ namespace KutuphaneYonetim.UI
         {
             dataGridView1.DataSource = await _loanService.GetAllAsync();
             dataGridView1.ConfigureColumns(ColumnHeaders);
+            dataGridView1.FormatMoneyColumns(nameof(LoanDetail.EstimatedFine), nameof(LoanDetail.FineAmount));
+            dataGridView1.FormatDateColumns(nameof(LoanDetail.DueDate));
         }
 
         private async void btnOduncAl_Click(object sender, EventArgs e)
@@ -67,9 +81,10 @@ namespace KutuphaneYonetim.UI
 
             await this.RunAsync(async () =>
             {
-                await _loanService.LendAsync(bookId, memberId);
+                await _loanService.LendAsync(bookId, memberId, dtpTeslim.Value.Date);
                 await LoadComboBoxesAsync();
                 await ListLoansAsync();
+                dtpTeslim.Value = _loanService.GetDefaultDueDate();
             });
         }
 
@@ -83,13 +98,22 @@ namespace KutuphaneYonetim.UI
 
             await this.RunAsync(async () =>
             {
-                await _loanService.ReturnAsync(bookId);
-                MessageBox.Show("Kitap başarıyla iade edildi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var receipt = await _loanService.ReturnAsync(bookId);
+                MessageBox.Show(DescribeReturn(receipt), "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 await LoadComboBoxesAsync();
                 await ListLoansAsync();
                 _selectedBookId = null;
             });
         }
+
+        private static string DescribeReturn(ReturnReceipt receipt) =>
+            receipt.Fine > 0
+                ? string.Format(
+                    CultureInfo.CurrentCulture,
+                    "Kitap iade edildi. {0} gün gecikme için {1:N2} TL ceza kaydedildi.",
+                    receipt.OverdueDays,
+                    receipt.Fine)
+                : "Kitap başarıyla iade edildi.";
 
         private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
         {

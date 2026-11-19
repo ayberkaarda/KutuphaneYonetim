@@ -51,7 +51,21 @@ namespace KutuphaneYonetim.UI
 
             ApplicationConfiguration.Initialize();
 
-            var connectionString = ResolveConnectionString(BuildConfiguration());
+            var configuration = BuildConfiguration();
+
+            var (policy, policyProblems) = AppConfiguration.ReadLibraryPolicy(configuration);
+            if (policyProblems.Count > 0)
+            {
+                Log.Warning("The Library settings are invalid: {Problems}", string.Join(" ", policyProblems));
+                MessageBox.Show(
+                    "appsettings.json içindeki \"Library\" ayarları geçersiz:\n\n" + string.Join("\n", policyProblems),
+                    "Kütüphane Yönetim",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            var connectionString = ResolveConnectionString(configuration);
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 Log.Warning("No database connection string is configured");
@@ -65,7 +79,7 @@ namespace KutuphaneYonetim.UI
                 return;
             }
 
-            using var serviceProvider = ConfigureServices(connectionString);
+            using var serviceProvider = ConfigureServices(connectionString, policy);
 
             try
             {
@@ -103,11 +117,11 @@ namespace KutuphaneYonetim.UI
                 : fromEnvironment;
         }
 
-        private static ServiceProvider ConfigureServices(string connectionString)
+        private static ServiceProvider ConfigureServices(string connectionString, LibraryPolicy policy)
         {
             var services = new ServiceCollection();
             services.AddSqlServerDataAccess(connectionString);
-            services.AddBusinessServices();
+            services.AddBusinessServices(policy);
             services.AddSingleton<IFormFactory, FormFactory>();
             return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
         }
@@ -123,5 +137,26 @@ namespace KutuphaneYonetim.UI
             builder
                 .SetBasePath(basePath)
                 .AddJsonFile(fileName, optional: true, reloadOnChange: false);
+
+        /// <summary>
+        /// Reads the <c>Library</c> section (defaults for missing values) and validates it. Values that
+        /// cannot be converted (for example text for a number) are reported as problems too.
+        /// </summary>
+        public static (LibraryPolicy Policy, IReadOnlyList<string> Problems) ReadLibraryPolicy(IConfiguration configuration)
+        {
+            ArgumentNullException.ThrowIfNull(configuration);
+
+            LibraryPolicy policy;
+            try
+            {
+                policy = configuration.GetSection(LibraryPolicy.SectionName).Get<LibraryPolicy>() ?? new LibraryPolicy();
+            }
+            catch (InvalidOperationException)
+            {
+                return (new LibraryPolicy(), ["Sayısal değerlerden biri okunamadı."]);
+            }
+
+            return (policy, policy.Validate());
+        }
     }
 }

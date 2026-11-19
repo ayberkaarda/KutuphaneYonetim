@@ -47,4 +47,25 @@ internal static class UiExtensions
             }
         }
     }
+
+    /// <summary>Shows the given decimal columns with two decimals (for amounts in TL).</summary>
+    public static void FormatMoneyColumns(this DataGridView grid, params string[] propertyNames) =>
+        grid.FormatColumns("N2", propertyNames);
+
+    /// <summary>Shows the given columns as dates without time.</summary>
+    public static void FormatDateColumns(this DataGridView grid, params string[] propertyNames) =>
+        grid.FormatColumns("d", propertyNames);
+
+    private static void FormatColumns(this DataGridView grid, string format, string[] propertyNames)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            if (propertyNames.Contains(column.DataPropertyName, StringComparer.Ordinal))
+            {
+                column.DefaultCellStyle.Format = format;
+            }
+        }
+    }
 }

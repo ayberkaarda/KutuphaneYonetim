@@ -36,6 +36,8 @@
             this.dataGridView1 = new System.Windows.Forms.DataGridView();
             this.label1 = new System.Windows.Forms.Label();
             this.label2 = new System.Windows.Forms.Label();
+            this.dtpTeslim = new System.Windows.Forms.DateTimePicker();
+            this.label3 = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             this.SuspendLayout();
             // 
@@ -59,7 +61,7 @@
             // 
             // btnOduncAl
             // 
-            this.btnOduncAl.Location = new System.Drawing.Point(308, 386);
+            this.btnOduncAl.Location = new System.Drawing.Point(308, 416);
             this.btnOduncAl.Name = "btnOduncAl";
             this.btnOduncAl.Size = new System.Drawing.Size(89, 30);
             this.btnOduncAl.TabIndex = 2;
@@ -69,7 +71,7 @@
             // 
             // btnIadeEt
             // 
-            this.btnIadeEt.Location = new System.Drawing.Point(449, 386);
+            this.btnIadeEt.Location = new System.Drawing.Point(449, 416);
             this.btnIadeEt.Name = "btnIadeEt";
             this.btnIadeEt.Size = new System.Drawing.Size(84, 30);
             this.btnIadeEt.TabIndex = 3;
@@ -105,11 +107,30 @@
             this.label2.TabIndex = 6;
             this.label2.Text = "Üye Seç";
             // 
+            // dtpTeslim
+            // 
+            this.dtpTeslim.Format = System.Windows.Forms.DateTimePickerFormat.Short;
+            this.dtpTeslim.Location = new System.Drawing.Point(336, 371);
+            this.dtpTeslim.Name = "dtpTeslim";
+            this.dtpTeslim.Size = new System.Drawing.Size(197, 22);
+            this.dtpTeslim.TabIndex = 7;
+            // 
+            // label3
+            // 
+            this.label3.AutoSize = true;
+            this.label3.Location = new System.Drawing.Point(255, 376);
+            this.label3.Name = "label3";
+            this.label3.Size = new System.Drawing.Size(77, 16);
+            this.label3.TabIndex = 8;
+            this.label3.Text = "Teslim Tarihi";
+            // 
             // OduncForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(827, 450);
+            this.ClientSize = new System.Drawing.Size(827, 470);
+            this.Controls.Add(this.label3);
+            this.Controls.Add(this.dtpTeslim);
             this.Controls.Add(this.label2);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.dataGridView1);
@@ -136,5 +157,7 @@
         private System.Windows.Forms.DataGridView dataGridView1;
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.DateTimePicker dtpTeslim;
+        private System.Windows.Forms.Label label3;
     }
 }

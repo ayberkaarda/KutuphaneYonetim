@@ -36,6 +36,7 @@
             this.label2 = new System.Windows.Forms.Label();
             this.btnEkle = new System.Windows.Forms.Button();
             this.btnSil = new System.Windows.Forms.Button();
+            this.btnCezaOde = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             this.SuspendLayout();
             // 
@@ -101,11 +102,22 @@
             this.btnSil.UseVisualStyleBackColor = true;
             this.btnSil.Click += new System.EventHandler(this.btnSil_Click);
             // 
+            // btnCezaOde
+            // 
+            this.btnCezaOde.Location = new System.Drawing.Point(439, 318);
+            this.btnCezaOde.Name = "btnCezaOde";
+            this.btnCezaOde.Size = new System.Drawing.Size(162, 35);
+            this.btnCezaOde.TabIndex = 7;
+            this.btnCezaOde.Text = "Cezayı Öde";
+            this.btnCezaOde.UseVisualStyleBackColor = true;
+            this.btnCezaOde.Click += new System.EventHandler(this.btnCezaOde_Click);
+            // 
             // UyeForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(639, 450);
+            this.Controls.Add(this.btnCezaOde);
             this.Controls.Add(this.btnSil);
             this.Controls.Add(this.btnEkle);
             this.Controls.Add(this.label2);
@@ -132,5 +144,6 @@
         private System.Windows.Forms.Label label2;
         private System.Windows.Forms.Button btnEkle;
         private System.Windows.Forms.Button btnSil;
+        private System.Windows.Forms.Button btnCezaOde;
     }
 }
