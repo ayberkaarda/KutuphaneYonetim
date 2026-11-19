@@ -96,7 +96,18 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
         int reservationId, DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var bookId = await db.Reservations
+            .Where(r => r.Id == reservationId)
+            .Select(r => (int?)r.BookId)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (bookId is null)
+        {
+            return false;
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await BookLock.AcquireAsync(db, bookId.Value, cancellationToken).ConfigureAwait(false);
 
         var reservation = await db.Reservations
             .Where(ReservationQueue.Active)
@@ -135,10 +146,23 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
     public async Task<int> ExpireHoldsAsync(DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var books = await db.Reservations
+            .Where(r => r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+            .Select(r => r.BookId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (books.Count == 0)
+        {
+            return 0;
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
+        // Read again under the book locks: a hold may have been picked up or cancelled in the meantime.
+        await BookLock.AcquireAsync(db, books, cancellationToken).ConfigureAwait(false);
         var expired = await db.Reservations
-            .Where(r => r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+            .Where(r => books.Contains(r.BookId) && r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         if (expired.Count == 0)

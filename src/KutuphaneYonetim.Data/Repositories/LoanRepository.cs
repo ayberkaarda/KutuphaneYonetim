@@ -78,6 +78,9 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
+        // Holds cannot expire, be cancelled or be served between the checks below and the commit.
+        await BookLock.AcquireAsync(db, bookId, cancellationToken).ConfigureAwait(false);
+
         var book = await db.Books.SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken).ConfigureAwait(false);
         if (book is null)
         {
@@ -143,7 +146,18 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var bookId = await db.Loans
+            .Where(l => l.Id == loanId)
+            .Select(l => (int?)l.BookId)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (bookId is null)
+        {
+            return ReturnOutcome.NotOpen;
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await BookLock.AcquireAsync(db, bookId.Value, cancellationToken).ConfigureAwait(false);
 
         var loan = await db.Loans
             .SingleOrDefaultAsync(l => l.Id == loanId && l.ReturnDate == null, cancellationToken)
