@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Kütüphane Yönetim</title>
+  <desc>An open book with a gold bookmark ribbon on a binding-wine rounded square.</desc>
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="#7A2B3F"/>
+  <path d="M 34 80 L 128 96 L 222 80 L 222 174 L 128 190 L 34 174 Z" fill="#E3CDA8"/>
+  <path d="M 42 70 L 123 85 L 123 178 L 42 163 Z" fill="#FBF4E8"/>
+  <path d="M 133 85 L 214 70 L 214 163 L 133 178 Z" fill="#FBF4E8"/>
+  <path d="M 60 100 L 106 109 M 60 119 L 106 128 M 60 138 L 94 145" stroke="#D2BC98" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M 150 109 L 176 104 M 150 128 L 176 123 M 150 147 L 170 143" stroke="#D2BC98" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M 184 76 L 199 73 L 199 132 L 191.5 124 L 184 135 Z" fill="#D9A23A"/>
+</svg>
