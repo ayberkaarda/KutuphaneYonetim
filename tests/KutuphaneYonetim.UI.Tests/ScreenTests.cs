@@ -72,6 +72,121 @@ public sealed class ScreenTests
         }
     });
 
+    public static TheoryData<string, int, int, float> DialogsOnSmallScreens
+    {
+        get
+        {
+            var data = new TheoryData<string, int, int, float>();
+            foreach (var (width, height) in new[] { (1024, 600), (1366, 768) })
+            {
+                foreach (var scale in new[] { 1F, 1.25F, 1.5F, 2F })
+                {
+                    foreach (var name in new[] { nameof(KitapForm), nameof(UyeForm), nameof(OduncForm), nameof(RezervasyonForm), nameof(RaporForm) })
+                    {
+                        data.Add(name, width, height, scale);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DialogsOnSmallScreens))]
+    public void LendingScreen_FitsWorkingAreaAndKeepsActionsReachable(string name, int screenWidth, int screenHeight, float fontScale) => Run(() =>
+    {
+        // Larger fonts stand in for a different font, DPI or text scale; the working area for a small screen.
+        var previous = Theme.Current;
+        var previousScale = Theme.RenderScale;
+        var previousArea = AppDialog.WorkingAreaOf;
+        Theme.Use(previous, fontScale);
+        var area = new Rectangle(0, 0, screenWidth, screenHeight);
+        AppDialog.WorkingAreaOf = _ => area;
+        try
+        {
+            using var form = (AppDialog)Create(name);
+            CreateHandles(form);
+
+            Assert.True(form.Width <= area.Width && form.Height <= area.Height, $"{name} opens at {form.Size}, larger than the working area {area.Size}.");
+            Assert.True(form.MinimumSize.Width <= area.Width && form.MinimumSize.Height <= area.Height, $"{name} requires {form.MinimumSize}, larger than the working area {area.Size}.");
+
+            foreach (var size in new[] { form.Size, form.MinimumSize })
+            {
+                form.Size = size;
+                form.ShowStatus(StatusKind.Warning, "Ölçüm sınırın dışında." + Environment.NewLine + "Değeri düzeltin.");
+                form.PerformLayout();
+
+                var body = Find<ScrollableControl>(form, "body");
+                var content = Find<Panel>(form, "content");
+                var unreachable = Descendants(form)
+                    .Where(control => control is not (Label or Panel or TableLayoutPanel or FlowLayoutPanel or GroupBox or InfoBar or ScrollBar))
+                    .Where(control => control.Parent is not NumericUpDown)
+                    .Where(control => control is not TextBox { Parent: TextField }) // Judged through the frame.
+                    .Select(control => (Control: control, Problem: Problem(form, body, content, control)))
+                    .Where(item => item.Problem is not null)
+                    .Select(item => $"{item.Control.Name} ({item.Control.GetType().Name}): {item.Problem}")
+                    .ToList();
+
+                Assert.True(unreachable.Count == 0, $"{name} at {form.Size}: " + string.Join(" || ", unreachable));
+                form.ClearStatus();
+            }
+        }
+        finally
+        {
+            AppDialog.WorkingAreaOf = previousArea;
+            Theme.Use(previous, previousScale);
+        }
+    });
+
+    /// <summary>
+    /// Why a control cannot be used: it is cut off by a container that does not scroll, or it lies outside the area the
+    /// scrolling body can reach. Containers of zero size cut off everything they hold.
+    /// </summary>
+    private static string? Problem(Form form, ScrollableControl body, Panel content, Control control)
+    {
+        if (control.Width <= 0 || control.Height <= 0)
+        {
+            return null; // Never shown.
+        }
+
+        var offset = control.Location;
+        for (var ancestor = control.Parent; ancestor is not null && ancestor != form; ancestor = ancestor.Parent)
+        {
+            var client = ancestor == body ? body.DisplayRectangle.Size : ancestor.ClientSize; // The body scrolls.
+            if (offset.X + control.Width > client.Width + 1 || offset.Y + control.Height > client.Height + 1 || offset.X < -1 || offset.Y < -1)
+            {
+                return $"cut off by {ancestor.Name} {ancestor.ClientSize}";
+            }
+
+            offset = new Point(offset.X + ancestor.Left, offset.Y + ancestor.Top);
+        }
+
+        if (control.Parent == form || !IsInside(body, control))
+        {
+            // Header and footer stay put: they must be fully inside the window.
+            return form.ClientRectangle.Contains(form.RectangleToClient(control.RectangleToScreen(control.ClientRectangle))) ? null : "outside the window";
+        }
+
+        // Inside the body: reachable when the body scrolls over everything the content needs.
+        var needed = content.Bounds;
+        var scrollable = body.AutoScroll && body.DisplayRectangle.Height >= needed.Bottom && body.DisplayRectangle.Width >= needed.Right;
+        return scrollable ? null : $"the body {body.ClientSize} does not scroll over {needed}";
+    }
+
+    private static bool IsInside(Control container, Control control)
+    {
+        for (var parent = control.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent == container)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     [Theory]
     [MemberData(nameof(ScreenNames))]
     public void Screen_UsesThemedControlsAndAKeyboardWayOut(string name) => Run(() =>

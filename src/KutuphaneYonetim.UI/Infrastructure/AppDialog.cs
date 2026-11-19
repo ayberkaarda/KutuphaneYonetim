@@ -13,7 +13,13 @@ public abstract class AppDialog : Form, IStatusSurface
 {
     internal const string AppName = Dialogs.AppName;
 
+    /// <summary>The usable desktop area of the screen a window opens on; tests replace it to stand in for small screens.</summary>
+    internal static Func<Control, Rectangle> WorkingAreaOf { get; set; } = control => Screen.FromControl(control).WorkingArea;
+
     private readonly InfoBar _status = new();
+    private readonly Panel _body;
+    private Size _contentMinimum;
+    private bool _sizeFitted;
     private readonly FlowLayoutPanel _actions;
     private readonly Label _footerNote;
 
@@ -38,15 +44,22 @@ public abstract class AppDialog : Form, IStatusSurface
         Content = new Panel { Name = "content", Dock = DockStyle.Fill, Margin = Padding.Empty };
         var body = new Panel
         {
-            Name = "body",
+            Name = "bodyContent",
             Dock = DockStyle.Fill,
             Padding = new Padding(Spacing.XL, Spacing.L, Spacing.XL, 0),
         };
         body.Controls.Add(Content);
         body.Controls.Add(_status);
 
+        // The padding stays inside a scrolling frame of its own: padding on the scrolling panel itself is
+        // not part of what the panel scrolls over, so the last row would stay out of reach.
+        _body = new Panel { Name = "body", Dock = DockStyle.Fill, AutoScroll = true };
+        _body.Controls.Add(body);
+        _status.SizeChanged += (_, _) => KeepContentReachable();
+        _status.VisibleChanged += (_, _) => KeepContentReachable();
+
         (_actions, _footerNote, var footer) = BuildFooter();
-        Controls.Add(body);
+        Controls.Add(_body);
         Controls.Add(footer);
         Controls.Add(FormLayout.Header(title, subtitle, glyph));
     }
@@ -106,6 +119,175 @@ public abstract class AppDialog : Form, IStatusSurface
         ThemeStyler.Apply(this);
         ResumeLayout(false);
         PerformLayout();
+    }
+
+    /// <inheritdoc />
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Measured once the window exists, so the real fonts and metrics decide how the content lays out.
+        if (!_sizeFitted)
+        {
+            _sizeFitted = true;
+            FitSizeToContent();
+        }
+    }
+
+    /// <summary>
+    /// Sizes the window for its content and for the screen. The content is laid out at the smallest size it
+    /// needs (the design minimum, grown until nothing overflows, also while a two-line message strip is shown);
+    /// the window opens and shrinks no larger than the working area of the screen. Where the screen is smaller
+    /// than the content, the body scrolls, while the header and the footer actions stay in view.
+    /// </summary>
+    private void FitSizeToContent()
+    {
+        // Child handles change the measured heights of combo boxes and numeric fields, so create them first
+        // (the window stays hidden).
+        CreateChildHandles(this);
+        var design = ClientSize;
+        var natural = Pickers(this).ToDictionary(picker => picker, picker => picker.Width);
+        var trial = ClientSizeFromWindow(MinimumSize);
+        ShowStatus(StatusKind.Info, "Örnek ileti" + Environment.NewLine + "ikinci satır");
+        try
+        {
+            for (var pass = 0; pass < 24; pass++)
+            {
+                ClientSize = trial;
+                PerformLayout();
+                var overflow = Overflow(this) + Squeeze(natural);
+                if (overflow.IsEmpty)
+                {
+                    break;
+                }
+
+                trial += overflow;
+            }
+
+            _contentMinimum = new Size(_body.ClientSize.Width, _body.ClientSize.Height - _status.Height);
+        }
+        finally
+        {
+            ClearStatus();
+        }
+
+        var area = WorkingAreaOf(this).Size;
+        MinimumSize = ForScreen(SizeFromClientSize(trial), area);
+        var opening = new Size(Math.Max(design.Width, trial.Width), Math.Max(design.Height, trial.Height));
+        Size = ForScreen(SizeFromClientSize(opening), area);
+        KeepContentReachable();
+        PerformLayout();
+    }
+
+    /// <summary>The scrollable area always holds the content at its minimum size plus the message strip.</summary>
+    private void KeepContentReachable()
+    {
+        if (!_contentMinimum.IsEmpty)
+        {
+            _body.AutoScrollMinSize = new Size(_contentMinimum.Width, _contentMinimum.Height + (_status.IsShown ? _status.Height : 0));
+        }
+    }
+
+    /// <summary>
+    /// Boxes with a fixed width are squeezed, not cut off, when their column gets too narrow; this is how far
+    /// the window has to grow for them to have the width they have at the design size.
+    /// </summary>
+    private static Size Squeeze(Dictionary<Control, int> natural)
+    {
+        var width = 0;
+        foreach (var (picker, wanted) in natural)
+        {
+            if (picker.Width > 0)
+            {
+                width = Math.Max(width, wanted - picker.Width - 1);
+            }
+        }
+
+        return new Size(width, 0);
+    }
+
+    private static IEnumerable<Control> Pickers(Control parent) =>
+        parent.Controls.Cast<Control>().SelectMany(child =>
+            child is ThemedComboBox or DateTimePicker or NumericUpDown ? [child] : Pickers(child));
+
+    private Size ClientSizeFromWindow(Size window) =>
+        new(window.Width - (Width - ClientSize.Width), window.Height - (Height - ClientSize.Height));
+
+    /// <summary>
+    /// The window size limited to the screen. A window that is cut in height gets a vertical scroll bar, which
+    /// takes width from the content, so that width is added (as far as the screen allows).
+    /// </summary>
+    private static Size ForScreen(Size window, Size area)
+    {
+        var scrollBar = window.Height > area.Height ? SystemInformation.VerticalScrollBarWidth : 0;
+        return new Size(Math.Min(window.Width + scrollBar, area.Width), Math.Min(window.Height, area.Height));
+    }
+
+    /// <summary>
+    /// A drop-down box takes its final height (which follows the font) only after its window exists, but the
+    /// container that holds it has measured the earlier, smaller height and would cut it off. The container is
+    /// made at least as tall as the box needs.
+    /// </summary>
+    private static void MakeRoomFor(ThemedComboBox combo)
+    {
+        if (combo.Parent is not { } parent)
+        {
+            return;
+        }
+
+        var needed = combo.Bottom + combo.Margin.Bottom + parent.Padding.Bottom;
+        if (parent.Height < needed)
+        {
+            parent.MinimumSize = new Size(parent.MinimumSize.Width, needed);
+        }
+    }
+
+    private static void CreateChildHandles(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            _ = child.Handle;
+            CreateChildHandles(child);
+            if (child is ThemedComboBox combo)
+            {
+                MakeRoomFor(combo);
+            }
+        }
+    }
+
+    /// <summary>How far the controls reach beyond the visible area of their containers (right, bottom).</summary>
+    private static Size Overflow(Control root)
+    {
+        const int Tolerance = 1; // Field wrappers settle the height of combo boxes one pixel late.
+        var width = 0;
+        var height = 0;
+        foreach (Control child in root.Controls)
+        {
+            if (child is InfoBar { Visible: false })
+            {
+                continue;
+            }
+
+            if (child is not (Label or Panel or TableLayoutPanel or FlowLayoutPanel or GroupBox) && child.Parent is not NumericUpDown
+                && child.Width > 0 && child.Height > 0)
+            {
+                // Position of the control in the client area of each ancestor; a container of zero size
+                // cuts off everything in it.
+                var offset = child.Location;
+                for (var ancestor = child.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    width = Math.Max(width, Math.Max(offset.X + child.Width - ancestor.ClientSize.Width, -offset.X) - Tolerance);
+                    height = Math.Max(height, offset.Y + child.Height - ancestor.ClientSize.Height - Tolerance);
+                    offset = new Point(offset.X + ancestor.Left, offset.Y + ancestor.Top);
+                }
+            }
+
+            var nested = Overflow(child);
+            width = Math.Max(width, nested.Width);
+            height = Math.Max(height, nested.Height);
+        }
+
+        return new Size(width, height);
     }
 
     private static (FlowLayoutPanel Actions, Label Note, Control Footer) BuildFooter()
