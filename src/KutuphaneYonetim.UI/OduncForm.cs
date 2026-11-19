@@ -233,7 +233,7 @@ namespace KutuphaneYonetim.UI
         }
 
         /// <summary>An open loan past its due date shows its due date, delay and fine in the danger color.</summary>
-        private void HighlightOverdue(object? sender, DataGridViewCellFormattingEventArgs e)
+        internal void HighlightOverdue(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.RowIndex < 0 || e.CellStyle is null
                 || !OverdueColumns.Contains(dataGridView1.Columns[e.ColumnIndex].DataPropertyName)
@@ -242,9 +242,7 @@ namespace KutuphaneYonetim.UI
                 return;
             }
 
-            e.CellStyle.ForeColor = Theme.Current.Danger;
-            e.CellStyle.SelectionForeColor = Theme.Current.Danger;
-            e.CellStyle.Font = Theme.Fonts.BodyStrong;
+            ThemeStyler.EmphasizeCell(e.CellStyle, Theme.Current.Danger);
         }
 
         private void BuildLayout()

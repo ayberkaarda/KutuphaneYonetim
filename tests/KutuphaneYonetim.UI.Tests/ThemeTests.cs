@@ -1,5 +1,8 @@
+using KutuphaneYonetim.Domain.Entities;
+using KutuphaneYonetim.UI.Tests.Support;
 using KutuphaneYonetim.UI.Theming;
 using Microsoft.Extensions.Configuration;
+using static KutuphaneYonetim.UI.Tests.Support.StaThread;
 
 namespace KutuphaneYonetim.UI.Tests;
 
@@ -99,6 +102,82 @@ public sealed class ThemeTests
         Assert.Equal(SystemColors.Window, p.Surface);
         Assert.Equal(SystemColors.Highlight, p.Accent);
         Assert.Equal(SystemColors.HighlightText, p.OnAccent);
+    }
+
+    [Fact]
+    public void HighContrast_SelectedAndHoveredContentUsesHighlightText() => Run(() =>
+    {
+        // A valid high contrast scheme whose text color equals the highlight color: status colors in the
+        // text color would vanish on a selected row, so selected content must use HighlightText.
+        var highlight = Color.Navy;
+        var highlightText = Color.Yellow;
+        var palette = ThemePalette.HighContrast() with
+        {
+            Text = highlight,
+            TextSecondary = highlight,
+            Danger = highlight,
+            Success = highlight,
+            Warning = highlight,
+            Accent = highlight,
+            SurfaceHover = highlight,
+            OnAccent = highlightText,
+        };
+        var previous = Theme.Current;
+        var previousScale = Theme.RenderScale;
+        Theme.Use(palette);
+        try
+        {
+            var members = new ControlledMemberService { AnswerImmediately = true };
+            members.Members.Add(new MemberSummary { Id = 1, FirstName = "Ali", LastName = "Kaya", UnpaidFine = 2m });
+            using var memberForm = new UyeForm(members);
+            Assert.True(memberForm.ListMembersAsync().IsCompletedSuccessfully);
+            AssertCellKeepsSystemSelection(Find<DataGridView>(memberForm, "dataGridView1"), "UnpaidFine", memberForm.HighlightFines, 2m, palette);
+
+            var loans = new ControlledLoanService();
+            using var loanForm = new OduncForm(new ControlledBookService(), new ControlledMemberService(), loans);
+            var loanLoad = loanForm.LoadAsync();
+            loans.RespondList(0, new LoanDetail { Id = 1, BookTitle = "Kitap", MemberName = "Ali Kaya", LoanDate = DateTime.Today.AddDays(-20), DueDate = DateTime.Today.AddDays(-6), OverdueDays = 6 });
+            Assert.True(loanLoad.IsCompletedSuccessfully);
+            var loanGrid = Find<DataGridView>(loanForm, "dataGridView1");
+            Assert.True(((LoanDetail)loanGrid.Rows[0].DataBoundItem!).OverdueDays > 0);
+            AssertCellKeepsSystemSelection(loanGrid, nameof(LoanDetail.OverdueDays), loanForm.HighlightOverdue, 6, palette);
+
+            var reservations = new ControlledReservationService();
+            using var reservationForm = new RezervasyonForm(new ControlledBookService(), new ControlledMemberService(), reservations);
+            var reservationLoad = reservationForm.LoadAsync();
+            reservations.RespondList(0, new ReservationDetail { Id = 1, BookTitle = "Kitap", MemberName = "Ali Kaya", Status = ReservationStatus.Ready });
+            Assert.True(reservationLoad.IsCompletedSuccessfully);
+            AssertCellKeepsSystemSelection(Find<DataGridView>(reservationForm, "dataGridView1"), nameof(ReservationDetail.Status), reservationForm.FormatStatus, ReservationStatus.Ready, palette);
+
+            // The availability column paints selected text in HighlightText and regular text in the text color.
+            Assert.Equal(highlightText, KitapForm.AvailabilityTextColor(palette, palette.Success, selected: true));
+            Assert.Equal(highlight, KitapForm.AvailabilityTextColor(palette, palette.Warning, selected: false));
+
+            // The hovered menu box is filled with Highlight and writes in HighlightText.
+            Assert.Equal((highlightText, highlightText), TileButton.TextColors(palette, enabled: true, hover: true));
+            Assert.Equal((highlight, highlight), TileButton.TextColors(palette, enabled: true, hover: false));
+        }
+        finally
+        {
+            Theme.Use(previous, previousScale);
+        }
+    });
+
+    private static void AssertCellKeepsSystemSelection(
+        DataGridView grid,
+        string property,
+        Action<object?, DataGridViewCellFormattingEventArgs> format,
+        object value,
+        ThemePalette palette)
+    {
+        var column = grid.Columns.Cast<DataGridViewColumn>().Single(c => c.DataPropertyName == property);
+        var style = new DataGridViewCellStyle();
+
+        format(grid, new DataGridViewCellFormattingEventArgs(column.Index, 0, value, value.GetType(), style));
+
+        Assert.Equal(palette.Text, style.ForeColor); // Regular state: the palette's text color.
+        Assert.Equal(Color.Empty, style.SelectionForeColor); // Selected state: inherited system HighlightText.
+        Assert.Same(Theme.Fonts.BodyStrong, style.Font); // The emphasis stays, as weight.
     }
 
     [Fact]

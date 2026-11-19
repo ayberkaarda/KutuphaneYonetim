@@ -321,7 +321,7 @@ namespace KutuphaneYonetim.UI
         }
 
         /// <summary>Unpaid fines stand out in the danger color and a stronger weight.</summary>
-        private void HighlightFines(object? sender, DataGridViewCellFormattingEventArgs e)
+        internal void HighlightFines(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.RowIndex < 0 || e.CellStyle is null
                 || dataGridView1.Columns[e.ColumnIndex].DataPropertyName != nameof(MemberSummary.UnpaidFine)
@@ -330,9 +330,7 @@ namespace KutuphaneYonetim.UI
                 return;
             }
 
-            e.CellStyle.ForeColor = Theme.Current.Danger;
-            e.CellStyle.SelectionForeColor = Theme.Current.Danger;
-            e.CellStyle.Font = Theme.Fonts.BodyStrong;
+            ThemeStyler.EmphasizeCell(e.CellStyle, Theme.Current.Danger);
         }
 
         private void BuildLayout()

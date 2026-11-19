@@ -67,6 +67,22 @@ internal sealed class TileButton : Button
         base.OnMouseUp(mevent);
     }
 
+    /// <summary>
+    /// Title and description colors. Under high contrast the hovered card is filled with Highlight, so its
+    /// text takes HighlightText instead of the regular text colors.
+    /// </summary>
+    internal static (Color Title, Color Description) TextColors(ThemePalette palette, bool enabled, bool hover)
+    {
+        ArgumentNullException.ThrowIfNull(palette);
+
+        if (palette.IsHighContrast && hover && enabled)
+        {
+            return (palette.OnAccent, palette.OnAccent);
+        }
+
+        return (enabled ? palette.Text : palette.TextDisabled, palette.TextSecondary);
+    }
+
     protected override void OnPaint(PaintEventArgs pevent)
     {
         ArgumentNullException.ThrowIfNull(pevent);
@@ -77,10 +93,11 @@ internal sealed class TileButton : Button
 
         var focused = Focused && ShowFocusCues;
         var hairline = Math.Max(1F, Theme.PxF(this, 1));
-        var fill = _pressed ? p.SurfaceAlt : _hover ? p.SurfaceHover : p.Surface;
+        var fill = _pressed && !p.IsHighContrast ? p.SurfaceAlt : _hover ? p.SurfaceHover : p.Surface;
         var border = focused ? p.Accent : _hover ? p.BorderStrong : p.Border;
         Painting.FillRounded(g, new RectangleF(0, 0, Width, Height), Theme.PxF(this, Radius.Card), fill, border, focused ? Theme.PxF(this, Sizes.FocusRing) : hairline);
 
+        var (titleColor, descriptionColor) = TextColors(p, Enabled, _hover);
         var pad = Theme.Px(this, Spacing.L + 2);
         var badge = Theme.Px(this, Sizes.TileBadge);
         var badgeBounds = new Rectangle(pad, pad, badge, badge);
@@ -95,7 +112,7 @@ internal sealed class TileButton : Button
             Text,
             Font,
             new Rectangle(left, pad - Theme.Px(this, 1), width, titleHeight),
-            Enabled ? p.Text : p.TextDisabled,
+            titleColor,
             TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
         var caption = Theme.Fonts.Caption;
@@ -105,7 +122,7 @@ internal sealed class TileButton : Button
             Description,
             caption,
             new Rectangle(left, descriptionTop, width, Math.Max(0, Height - descriptionTop - Theme.Px(this, Spacing.S))),
-            p.TextSecondary,
+            descriptionColor,
             TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.TextBoxControl);
     }
 }

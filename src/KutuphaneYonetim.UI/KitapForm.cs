@@ -237,10 +237,17 @@ namespace KutuphaneYonetim.UI
                 text,
                 Theme.Fonts.Body,
                 new Rectangle(textLeft, bounds.Top, Math.Max(0, bounds.Right - textLeft), bounds.Height),
-                p.IsHighContrast ? p.Text : color,
+                AvailabilityTextColor(p, color, (e.State & DataGridViewElementStates.Selected) != 0),
                 TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
             e.Handled = true;
         }
+
+        /// <summary>
+        /// Text color of the availability column: the status color, or the palette's own text pair under high
+        /// contrast (HighlightText on the selected row, which is drawn on Highlight).
+        /// </summary>
+        internal static Color AvailabilityTextColor(ThemePalette palette, Color statusColor, bool selected) =>
+            !palette.IsHighContrast ? statusColor : selected ? palette.OnAccent : palette.Text;
 
         private void BuildLayout()
         {

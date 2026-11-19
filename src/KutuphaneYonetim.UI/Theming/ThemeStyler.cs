@@ -63,6 +63,24 @@ internal static class ThemeStyler
         grid.AlternatingRowsDefaultCellStyle.BackColor = p.SurfaceAlt;
     }
 
+    /// <summary>
+    /// Writes a grid cell in a status <paramref name="color"/> and a stronger weight. The selected cell keeps the
+    /// color too, except under high contrast: there the selection pair belongs to the system (HighlightText on
+    /// Highlight) and a status color on that background could be unreadable.
+    /// </summary>
+    internal static void EmphasizeCell(DataGridViewCellStyle style, Color color)
+    {
+        ArgumentNullException.ThrowIfNull(style);
+
+        style.ForeColor = color;
+        if (!Theme.Current.IsHighContrast)
+        {
+            style.SelectionForeColor = color;
+        }
+
+        style.Font = Theme.Fonts.BodyStrong;
+    }
+
     private static void Walk(Control parent, ThemePalette p)
     {
         foreach (Control control in parent.Controls)

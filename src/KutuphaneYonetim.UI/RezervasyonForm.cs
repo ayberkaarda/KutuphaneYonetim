@@ -170,7 +170,7 @@ namespace KutuphaneYonetim.UI
         }
 
         /// <summary>The status reads as Turkish text; a book held for the member stands out in the success color.</summary>
-        private void FormatStatus(object? sender, DataGridViewCellFormattingEventArgs e)
+        internal void FormatStatus(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.Value is not ReservationStatus status)
             {
@@ -181,9 +181,7 @@ namespace KutuphaneYonetim.UI
             e.FormattingApplied = true;
             if (e.CellStyle is not null && status == ReservationStatus.Ready)
             {
-                e.CellStyle.ForeColor = Theme.Current.Success;
-                e.CellStyle.SelectionForeColor = Theme.Current.Success;
-                e.CellStyle.Font = Theme.Fonts.BodyStrong;
+                ThemeStyler.EmphasizeCell(e.CellStyle, Theme.Current.Success);
             }
         }
 
