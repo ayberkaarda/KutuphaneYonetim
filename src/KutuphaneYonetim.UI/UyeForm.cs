@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain;
@@ -54,6 +55,7 @@ namespace KutuphaneYonetim.UI
             : base("Üyeler", "Üye ekleyin ve arayın; açık ödünçleri ve ödenmemiş cezaları tek listede görün.", Glyphs.People, new Size(1040, 660), new Size(840, 580))
         {
             _memberService = memberService;
+            IsListFocused = () => dataGridView1.Focused;
             BuildLayout();
             _pager = new Pager(btnOnceki, btnSonraki, lblSayfa);
             ShowSelection();
@@ -78,13 +80,20 @@ namespace KutuphaneYonetim.UI
             dataGridView1.CurrentCellChanged += (_, _) =>
             {
                 // Arrow keys choose a row too, but only while the user is in the list.
-                if (dataGridView1.Focused && dataGridView1.CurrentRow is { } row)
+                if (!_binding && IsListFocused() && dataGridView1.CurrentRow is { } row)
                 {
                     SelectRow(row.Index);
                 }
             };
             dataGridView1.CellFormatting += HighlightFines;
         }
+
+        /// <summary>Whether the user is working in the list; tests replace it because a window that is never shown has no focus.</summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        internal Func<bool> IsListFocused { get; set; }
+
+        private bool _binding;
 
         private Control[] WriteButtons => [btnEkle, btnSil, btnCezaOde];
 
@@ -124,11 +133,7 @@ namespace KutuphaneYonetim.UI
                 dataGridView1.EmptyText = string.IsNullOrWhiteSpace(query.Text) && query.Filter == MemberFilter.All
                     ? "Henüz üye yok. Soldaki formdan ilk üyeyi ekleyin."
                     : "Aramanıza uyan üye bulunamadı.";
-                dataGridView1.DataSource = result.Items;
-                dataGridView1.ConfigureColumns(ColumnHeaders);
-                dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
-                dataGridView1.FitColumns(120, nameof(MemberSummary.FirstName), nameof(MemberSummary.LastName));
-                dataGridView1.SelectedItem = null;
+                BindList(result.Items);
                 _pager.Show(result);
             }
             finally
@@ -138,6 +143,29 @@ namespace KutuphaneYonetim.UI
                     dataGridView1.IsLoading = false;
                 }
             }
+        }
+
+        /// <summary>
+        /// Shows the rows without choosing one: binding moves the current cell to the first row, which is
+        /// not the user's choice, so selection by that event is suppressed and the model, the card and the
+        /// row highlight are cleared together afterwards.
+        /// </summary>
+        private void BindList(IReadOnlyList<MemberSummary> items)
+        {
+            _binding = true;
+            try
+            {
+                dataGridView1.DataSource = items;
+                dataGridView1.ConfigureColumns(ColumnHeaders);
+                dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
+                dataGridView1.FitColumns(120, nameof(MemberSummary.FirstName), nameof(MemberSummary.LastName));
+            }
+            finally
+            {
+                _binding = false;
+            }
+
+            ClearSelection();
         }
 
         private void ClearSelection()
