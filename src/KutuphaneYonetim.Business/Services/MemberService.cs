@@ -83,13 +83,14 @@ internal sealed class MemberService(
         _ = await members.GetByIdAsync(memberId, cancellationToken).ConfigureAwait(false)
             ?? throw new BusinessRuleException(Messages.MemberNotFound);
 
-        var unpaid = await loans.GetUnpaidFineTotalAsync(memberId, cancellationToken).ConfigureAwait(false);
-        if (unpaid <= 0)
+        // Selecting, closing and summing the fines is one repository transaction, so the amount reported is
+        // exactly what was marked paid; a concurrent payment of the same fines reports nothing here.
+        var paid = await loans.PayFinesAsync(memberId, timeProvider.GetLocalNow().DateTime, cancellationToken).ConfigureAwait(false);
+        if (paid <= 0)
         {
             throw new BusinessRuleException("Bu üyenin ödenmemiş cezası bulunmuyor.");
         }
 
-        await loans.PayFinesAsync(memberId, timeProvider.GetLocalNow().DateTime, cancellationToken).ConfigureAwait(false);
-        return unpaid;
+        return paid;
     }
 }

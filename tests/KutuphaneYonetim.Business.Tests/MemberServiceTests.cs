@@ -131,23 +131,23 @@ public sealed class MemberServiceTests
     }
 
     [Fact]
-    public async Task PayFinesAsync_UnpaidFines_AreMarkedPaidAndTotalReturned()
+    public async Task PayFinesAsync_UnpaidFines_ReturnsTheAmountTheRepositoryClosed()
     {
         _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
-        _loans.Setup(l => l.GetUnpaidFineTotalAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(12.50m);
-        _loans.Setup(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        _loans.Setup(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>())).ReturnsAsync(12.50m);
 
         var paid = await _service.PayFinesAsync(3, TestContext.Current.CancellationToken);
 
         Assert.Equal(12.50m, paid);
         _loans.Verify(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>()), Times.Once);
+        _loans.VerifyNoOtherCalls();
     }
 
     [Fact]
     public async Task PayFinesAsync_NothingUnpaid_IsRejected()
     {
         _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
-        _loans.Setup(l => l.GetUnpaidFineTotalAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+        _loans.Setup(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>())).ReturnsAsync(0m);
 
         var error = await Assert.ThrowsAsync<BusinessRuleException>(
             () => _service.PayFinesAsync(3, TestContext.Current.CancellationToken));

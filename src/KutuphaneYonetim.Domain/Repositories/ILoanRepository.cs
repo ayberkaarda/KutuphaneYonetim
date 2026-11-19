@@ -59,6 +59,10 @@ public interface ILoanRepository
     /// <summary>Sum of the member's fines that are not paid yet (0 when there are none).</summary>
     Task<decimal> GetUnpaidFineTotalAsync(int memberId, CancellationToken cancellationToken = default);
 
-    /// <summary>Marks all unpaid fines of the member as paid. Returns the number of loans updated.</summary>
-    Task<int> PayFinesAsync(int memberId, DateTime paidDate, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Marks the unpaid fines of the member as paid in a single transaction and returns the sum of exactly
+    /// the fines it closed: 0 when nothing was left to pay (for example because a concurrent payment closed
+    /// them first). A fine recorded concurrently is either included in the sum or left unpaid.
+    /// </summary>
+    Task<decimal> PayFinesAsync(int memberId, DateTime paidDate, CancellationToken cancellationToken = default);
 }

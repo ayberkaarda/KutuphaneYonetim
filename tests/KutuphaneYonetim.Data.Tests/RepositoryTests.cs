@@ -186,10 +186,10 @@ public sealed class RepositoryTests : IAsyncLifetime
         Assert.Equal([0m, 2.25m, 7.50m], summaries.Select(m => m.UnpaidFine));
 
         var paidDate = DueDate.AddDays(4);
-        Assert.Equal(1, await Loans.PayFinesAsync(3, paidDate, Ct));
+        Assert.Equal(7.50m, await Loans.PayFinesAsync(3, paidDate, Ct));
         Assert.Equal(0m, await Loans.GetUnpaidFineTotalAsync(3, Ct));
         Assert.Equal(paidDate, Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == loanId).FinePaidDate);
-        Assert.Equal(0, await Loans.PayFinesAsync(3, paidDate, Ct)); // Nothing left to pay.
+        Assert.Equal(0m, await Loans.PayFinesAsync(3, paidDate, Ct)); // Nothing left to pay.
         Assert.Equal(2.25m, await Loans.GetUnpaidFineTotalAsync(2, Ct)); // Other members are untouched.
     }
 

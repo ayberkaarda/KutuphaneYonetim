@@ -7,6 +7,8 @@ namespace KutuphaneYonetim.Data.Repositories;
 
 internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> contextFactory) : ILoanRepository
 {
+    private const int MaxPaymentAttempts = 3;
+
     public async Task<IReadOnlyList<LoanDetail>> GetAllDetailsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -189,12 +191,40 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         return total ?? 0m;
     }
 
-    public async Task<int> PayFinesAsync(int memberId, DateTime paidDate, CancellationToken cancellationToken = default)
+    public async Task<decimal> PayFinesAsync(int memberId, DateTime paidDate, CancellationToken cancellationToken = default)
     {
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        return await db.Loans
-            .Where(l => l.MemberId == memberId && l.FineAmount > 0 && l.FinePaidDate == null)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(l => l.FinePaidDate, paidDate), cancellationToken)
-            .ConfigureAwait(false);
+        for (var attempt = 1; ; attempt++)
+        {
+            await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            var unpaid = await db.Loans
+                .Where(l => l.MemberId == memberId && l.FineAmount > 0 && l.FinePaidDate == null)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (unpaid.Count == 0)
+            {
+                return 0m;
+            }
+
+            foreach (var loan in unpaid)
+            {
+                loan.FinePaidDate = paidDate;
+            }
+
+            try
+            {
+                // Every row is updated only if its row version is unchanged, so the sum below is exactly
+                // what this call closed; fines recorded after the read stay unpaid.
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return unpaid.Sum(l => l.FineAmount ?? 0m);
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < MaxPaymentAttempts)
+            {
+                // Another session paid (some of) these fines in the meantime: read again.
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 }
