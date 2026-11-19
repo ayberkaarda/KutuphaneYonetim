@@ -1,6 +1,7 @@
 using System.Globalization;
 using KutuphaneYonetim.Business.Reports;
 using KutuphaneYonetim.UI.Infrastructure;
+using KutuphaneYonetim.UI.Theming;
 
 namespace KutuphaneYonetim.UI
 {
@@ -8,7 +9,7 @@ namespace KutuphaneYonetim.UI
     /// Overdue loans, most borrowed books (date range) and unpaid fines. The table on screen is exported
     /// to CSV exactly as shown.
     /// </summary>
-    public partial class RaporForm : Form
+    public sealed class RaporForm : AppDialog
     {
         internal enum ReportKind
         {
@@ -31,6 +32,16 @@ namespace KutuphaneYonetim.UI
             [ReportKind.UnpaidFines] = "odenmemis-cezalar",
         };
 
+        private static readonly Dictionary<ReportKind, string> EmptyTexts = new()
+        {
+            [ReportKind.OverdueLoans] = "Geciken kitap yok; bütün açık ödünçlerin teslim tarihi henüz gelmedi.",
+            [ReportKind.MostBorrowed] = "Seçilen tarih aralığında ödünç verilen kitap yok.",
+            [ReportKind.UnpaidFines] = "Ödenmemiş ceza yok.",
+        };
+
+        /// <summary>Text columns that share the free width; the rest fit their values.</summary>
+        private static readonly HashSet<string> WideHeaders = ["Kitap", "Üye", "Yazar"];
+
         private readonly IReportService _reportService;
         private readonly ICsvExporter _csvExporter;
         private readonly RequestSequence _reportRequests = new();
@@ -38,11 +49,36 @@ namespace KutuphaneYonetim.UI
         private ReportTable? _shownTable;
         private ReportKind _shownKind;
 
+        private readonly ThemedComboBox cmbRapor = FormLayout.Picker(nameof(cmbRapor), 240);
+        private readonly DateTimePicker dtpBaslangic = FormLayout.DatePicker(nameof(dtpBaslangic));
+        private readonly DateTimePicker dtpBitis = FormLayout.DatePicker(nameof(dtpBitis));
+        private readonly NumericUpDown nudAdet = new() { Name = nameof(nudAdet), Width = 72, TextAlign = HorizontalAlignment.Right };
+        private readonly ThemedButton btnGoster = FormLayout.Button(nameof(btnGoster), "Göster", ButtonKind.Primary);
+        private readonly ThemedButton btnCsv = FormLayout.Button(nameof(btnCsv), "CSV Olarak Dışa Aktar");
+        private readonly Label lblOzet = FormLayout.Hint(string.Empty);
+        private readonly Label lblAralikIpucu = FormLayout.Hint(string.Empty);
+        private readonly ThemedGrid dataGridView1 = new() { Name = nameof(dataGridView1), AccessibleName = "Rapor" };
+        private Label _tableTitle = null!;
+
         public RaporForm(IReportService reportService, ICsvExporter csvExporter)
+            : base("Raporlar", "Gecikenleri, en çok ödünç alınan kitapları ve ödenmemiş cezaları görün; tabloyu CSV olarak alın.", Glyphs.Report, new Size(1040, 660))
         {
             _reportService = reportService;
             _csvExporter = csvExporter;
-            InitializeComponent();
+            BuildLayout();
+
+            Load += async (_, _) =>
+            {
+                InitializeFilters();
+                await this.RunAsync(ShowReportAsync);
+            };
+            cmbRapor.SelectionChangeCommitted += async (_, _) =>
+            {
+                UpdateFilterControls();
+                await this.RunAsync(ShowReportAsync);
+            };
+            btnGoster.Click += async (_, _) => await this.RunAsync(ShowReportAsync);
+            btnCsv.Click += async (_, _) => await this.RunExclusiveAsync(_export, ExportCsvAsync, btnCsv);
         }
 
         /// <summary>The table on screen (what CSV export writes), from the most recent report request.</summary>
@@ -52,12 +88,6 @@ namespace KutuphaneYonetim.UI
         internal ReportKind ShownKind => _shownKind;
 
         private ReportKind SelectedKind => cmbRapor.SelectedOption(ReportKind.OverdueLoans);
-
-        private async void RaporForm_Load(object sender, EventArgs e)
-        {
-            InitializeFilters();
-            await this.RunAsync(ShowReportAsync);
-        }
 
         /// <summary>Fills the report list and the default date range and count.</summary>
         internal void InitializeFilters()
@@ -71,20 +101,16 @@ namespace KutuphaneYonetim.UI
             UpdateFilterControls();
         }
 
-        private async void cmbRapor_SelectionChangeCommitted(object sender, EventArgs e)
-        {
-            UpdateFilterControls();
-            await this.RunAsync(ShowReportAsync);
-        }
-
-        private async void btnGoster_Click(object sender, EventArgs e) => await this.RunAsync(ShowReportAsync);
-
-        private void UpdateFilterControls()
+        /// <summary>The date range and count apply to the most borrowed report only.</summary>
+        internal void UpdateFilterControls()
         {
             var range = SelectedKind == ReportKind.MostBorrowed;
             dtpBaslangic.Enabled = range;
             dtpBitis.Enabled = range;
             nudAdet.Enabled = range;
+            lblAralikIpucu.Text = range
+                ? "Seçilen tarihler arasında en çok ödünç alınan kitaplar, ödünç sayısına göre sıralanır."
+                : "Tarih aralığı ve kayıt sayısı yalnızca \"En çok ödünç alınanlar\" raporunda kullanılır.";
         }
 
         /// <summary>
@@ -95,22 +121,35 @@ namespace KutuphaneYonetim.UI
         {
             var request = _reportRequests.Next();
             var kind = SelectedKind;
-            var table = kind switch
+            dataGridView1.IsLoading = true;
+            try
             {
-                ReportKind.MostBorrowed => ReportTables.MostBorrowed(
-                    await _reportService.GetMostBorrowedAsync(dtpBaslangic.Value.Date, dtpBitis.Value.Date, (int)nudAdet.Value)),
-                ReportKind.UnpaidFines => ReportTables.UnpaidFines(await _reportService.GetUnpaidFinesAsync()),
-                _ => ReportTables.OverdueLoans(await _reportService.GetOverdueLoansAsync()),
-            };
-            if (!_reportRequests.IsLatest(request))
-            {
-                return;
-            }
+                var table = kind switch
+                {
+                    ReportKind.MostBorrowed => ReportTables.MostBorrowed(
+                        await _reportService.GetMostBorrowedAsync(dtpBaslangic.Value.Date, dtpBitis.Value.Date, (int)nudAdet.Value)),
+                    ReportKind.UnpaidFines => ReportTables.UnpaidFines(await _reportService.GetUnpaidFinesAsync()),
+                    _ => ReportTables.OverdueLoans(await _reportService.GetOverdueLoansAsync()),
+                };
+                if (!_reportRequests.IsLatest(request))
+                {
+                    return;
+                }
 
-            ShowTable(table);
-            _shownTable = table;
-            _shownKind = kind;
-            lblOzet.Text = string.Format(CultureInfo.CurrentCulture, "{0} kayıt", table.Rows.Count);
+                dataGridView1.EmptyText = EmptyTexts[kind];
+                ShowTable(table);
+                _shownTable = table;
+                _shownKind = kind;
+                _tableTitle.Text = ReportOptions.Single(o => o.Value == kind).Text;
+                lblOzet.Text = string.Format(CultureInfo.CurrentCulture, "{0} kayıt", table.Rows.Count);
+            }
+            finally
+            {
+                if (_reportRequests.IsLatest(request))
+                {
+                    dataGridView1.IsLoading = false;
+                }
+            }
         }
 
         private void ShowTable(ReportTable table)
@@ -121,7 +160,26 @@ namespace KutuphaneYonetim.UI
 
             foreach (var header in table.Headers)
             {
-                var column = new DataGridViewTextBoxColumn { HeaderText = header, SortMode = DataGridViewColumnSortMode.NotSortable };
+                var column = new DataGridViewTextBoxColumn
+                {
+                    HeaderText = header,
+                    SortMode = DataGridViewColumnSortMode.NotSortable,
+                    AutoSizeMode = WideHeaders.Contains(header) ? DataGridViewAutoSizeColumnMode.Fill : DataGridViewAutoSizeColumnMode.AllCells,
+                };
+                if (WideHeaders.Contains(header))
+                {
+                    column.MinimumWidth = Theme.Px(dataGridView1, 140);
+                }
+                else
+                {
+                    column.MinimumWidth = UiExtensions.HeaderWidth(dataGridView1, header, wholeText: true);
+                    if (IsNumeric(header))
+                    {
+                        column.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                        column.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleRight;
+                    }
+                }
+
                 dataGridView1.Columns.Add(column);
             }
 
@@ -130,16 +188,19 @@ namespace KutuphaneYonetim.UI
                 dataGridView1.Rows.Add(row.ToArray<object>());
             }
 
-            dataGridView1.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+            dataGridView1.ClearSelection();
         }
 
-        private async void btnCsv_Click(object sender, EventArgs e) => await this.RunExclusiveAsync(_export, ExportCsvAsync, btnCsv);
+        /// <summary>Counts, numbers and amounts are right aligned so their digits line up.</summary>
+        private static bool IsNumeric(string header) =>
+            header.EndsWith("(TL)", StringComparison.Ordinal) || header.EndsWith("(Gün)", StringComparison.Ordinal)
+            || header.EndsWith(" No", StringComparison.Ordinal) || header is "Sıra" or "Ödünç Sayısı";
 
         private async Task ExportCsvAsync()
         {
             if (_shownTable is not { } table)
             {
-                MessageBox.Show("Önce bir rapor görüntüleyin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Prompts.Warn("Önce bir rapor görüntüleyin.");
                 return;
             }
 
@@ -158,11 +219,39 @@ namespace KutuphaneYonetim.UI
             }
 
             await _csvExporter.ExportAsync(table, dialog.FileName);
-            MessageBox.Show(
-                string.Format(CultureInfo.CurrentCulture, "{0} satır CSV dosyasına aktarıldı.", table.Rows.Count),
-                "Bilgi",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            Prompts.Inform(string.Format(
+                CultureInfo.CurrentCulture, "{0} satır CSV dosyasına aktarıldı: {1}", table.Rows.Count, Path.GetFileName(dialog.FileName)));
+        }
+
+        private void BuildLayout()
+        {
+            Name = nameof(RaporForm);
+
+            nudAdet.Font = Theme.Fonts.Body;
+            btnCsv.Margin = new Padding(Spacing.S, Spacing.XS, 0, 0);
+            var filters = FormLayout.FieldRow(
+                "reportFilters",
+                (FormLayout.Field("&Rapor", cmbRapor), 100),
+                (FormLayout.Field("&Başlangıç", dtpBaslangic), 0),
+                (FormLayout.Field("Bi&tiş", dtpBitis), 0),
+                (FormLayout.Field("İ&lk", nudAdet), 0),
+                (FormLayout.FieldAction(btnGoster), 0),
+                (FormLayout.FieldAction(btnCsv), 0));
+            lblAralikIpucu.Name = nameof(lblAralikIpucu);
+            lblAralikIpucu.Margin = new Padding(0, Spacing.M, 0, 0);
+            var filterCard = FormLayout.Card("filterCard", "Rapor seçimi", FormLayout.Stack("filterStack", filters, lblAralikIpucu), fill: false);
+
+            lblOzet.Name = nameof(lblOzet);
+            lblOzet.Margin = Padding.Empty;
+            var summary = FormLayout.Bar("summaryBar", (lblOzet, true));
+            summary.Margin = new Padding(0, Spacing.M, 0, 0);
+            var tableCard = FormLayout.Card("tableCard", "Rapor", FormLayout.Page((dataGridView1, true), (summary, false)));
+            _tableTitle = (Label)tableCard.Controls["tableCardTitle"]!;
+
+            Content.Controls.Add(FormLayout.Page((filterCard, false), (tableCard, true)));
+            SetFooterNote("CSV dosyası ekranda görünen tabloyu Excel'in açabileceği biçimde yazar.");
+            SetFooterButtons(CreateCloseButton());
+            FinishLayout();
         }
     }
 }
