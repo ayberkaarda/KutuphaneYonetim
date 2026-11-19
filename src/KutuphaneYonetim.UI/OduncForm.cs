@@ -32,6 +32,8 @@ namespace KutuphaneYonetim.UI
         private readonly IMemberService _memberService;
         private readonly ILoanService _loanService;
         private readonly ExclusiveOperation _write = new();
+        private readonly RequestSequence _pickerRequests = new();
+        private readonly RequestSequence _listRequests = new();
         private int? _selectedBookId;
 
         public OduncForm(IBookService bookService, IMemberService memberService, ILoanService loanService)
@@ -52,27 +54,47 @@ namespace KutuphaneYonetim.UI
             dtpTeslim.MinDate = DateTime.Today;
             dtpTeslim.Value = _loanService.GetDefaultDueDate();
 
-            await this.RunAsync(async () =>
-            {
-                await LoadComboBoxesAsync();
-                await ListLoansAsync();
-            });
+            await this.RunAsync(LoadAsync);
         }
 
+        /// <summary>Initial load of the pickers and the loan list.</summary>
+        internal async Task LoadAsync()
+        {
+            await LoadComboBoxesAsync();
+            await ListLoansAsync();
+        }
+
+        /// <summary>Loads the pickers; only the most recent of overlapping loads is shown.</summary>
         private async Task LoadComboBoxesAsync()
         {
+            var request = _pickerRequests.Next();
+            var books = await _bookService.GetAvailableAsync();
+            var members = await _memberService.GetAllAsync();
+            if (!_pickerRequests.IsLatest(request))
+            {
+                return;
+            }
+
             cmbKitaplar.DisplayMember = nameof(Book.Title);
             cmbKitaplar.ValueMember = nameof(Book.Id);
-            cmbKitaplar.DataSource = await _bookService.GetAvailableAsync();
+            cmbKitaplar.DataSource = books;
 
             cmbUyeler.DisplayMember = nameof(Member.FullName);
             cmbUyeler.ValueMember = nameof(Member.Id);
-            cmbUyeler.DataSource = await _memberService.GetAllAsync();
+            cmbUyeler.DataSource = members;
         }
 
+        /// <summary>Loads the loan list; only the most recent of overlapping loads is shown.</summary>
         private async Task ListLoansAsync()
         {
-            dataGridView1.DataSource = await _loanService.GetAllAsync();
+            var request = _listRequests.Next();
+            var loans = await _loanService.GetAllAsync();
+            if (!_listRequests.IsLatest(request))
+            {
+                return;
+            }
+
+            dataGridView1.DataSource = loans;
             dataGridView1.ConfigureColumns(ColumnHeaders);
             dataGridView1.FormatMoneyColumns(nameof(LoanDetail.EstimatedFine), nameof(LoanDetail.FineAmount));
             dataGridView1.FormatDateColumns(nameof(LoanDetail.DueDate));

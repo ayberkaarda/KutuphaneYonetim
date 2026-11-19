@@ -69,4 +69,43 @@ public sealed class RequestOrderTests
         Assert.Equal(ReportTables.UnpaidFines([]).Headers, form.ShownTable!.Headers);
         Assert.Equal("7", Assert.Single(form.ShownTable.Rows)[0]);
     });
+
+    [Fact]
+    public void OduncForm_InitialLoadFinishesLast_KeepsPostLendList() => Run(() =>
+    {
+        var books = new ControlledBookService();
+        books.Books.Add(new Book { Id = 1, Title = "Kitap", IsAvailable = true });
+        var members = new ControlledMemberService();
+        members.All.Add(new Member { Id = 4, FirstName = "Ayşe", LastName = "Yılmaz" });
+        var loans = new ControlledLoanService();
+        using var form = new OduncForm(books, members, loans) { Prompts = new RecordedPrompts().Prompts };
+        var grid = Find<DataGridView>(form, "dataGridView1");
+
+        // The pickers are filled; the first loan list is still on its way when the user lends.
+        var load = form.LoadAsync();
+        var lend = form.LendAsync();
+        Assert.Equal([1], loans.Lent);
+
+        var latest = loans.RespondList(1, new LoanDetail { Id = 9, BookId = 1, MemberId = 4 });
+        loans.RespondList(0);
+
+        Assert.True(load.IsCompletedSuccessfully && lend.IsCompletedSuccessfully);
+        Assert.Same(latest, grid.DataSource);
+    });
+
+    [Fact]
+    public void OduncForm_EarlierPickerLoadFinishesLast_KeepsLatestPickers() => Run(() =>
+    {
+        var books = new ControlledBookService { ControlAvailable = true };
+        using var form = new OduncForm(books, new ControlledMemberService(), new ControlledLoanService());
+
+        var first = form.LoadAsync();
+        var second = form.LoadAsync();
+
+        var latest = books.RespondAvailable(1, new Book { Id = 2, Title = "Yeni" });
+        books.RespondAvailable(0, new Book { Id = 1, Title = "Eski" });
+
+        Assert.False(first.IsFaulted || second.IsFaulted);
+        Assert.Same(latest, Find<ComboBox>(form, "cmbKitaplar").DataSource);
+    });
 }
