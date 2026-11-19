@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="KutuphaneYonetim.UI.Tests" />
+    <InternalsVisibleTo Include="KutuphaneYonetim.Screenshots" />
   </ItemGroup>
 
   <ItemGroup>
