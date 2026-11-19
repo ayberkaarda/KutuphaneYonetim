@@ -59,9 +59,10 @@ namespace KutuphaneYonetim.UI
             if (policyProblems.Count > 0)
             {
                 Log.Warning("The Library settings are invalid: {Problems}", string.Join(" ", policyProblems));
-                MessageBox.Show(
+                Dialogs.Show(
+                    null,
                     "appsettings.json içindeki \"Library\" ayarları geçersiz:\n\n" + string.Join("\n", policyProblems),
-                    "Kütüphane Yönetim",
+                    "Ayarlar geçersiz",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
@@ -71,11 +72,12 @@ namespace KutuphaneYonetim.UI
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 Log.Warning("No database connection string is configured");
-                MessageBox.Show(
+                Dialogs.Show(
+                    null,
                     "Veritabanı bağlantı ayarı bulunamadı.\n\n"
                     + "appsettings.example.json dosyasını appsettings.json olarak kopyalayıp bağlantı bilgisini girin "
                     + "ya da KUTUPHANE_CONNECTION ortam değişkenini tanımlayın.",
-                    "Kütüphane Yönetim",
+                    "Bağlantı ayarı bulunamadı",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;

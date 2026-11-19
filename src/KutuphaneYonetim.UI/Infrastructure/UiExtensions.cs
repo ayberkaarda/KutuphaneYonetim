@@ -31,6 +31,7 @@ internal static class UiExtensions
     /// <summary>
     /// Like <see cref="RunAsync"/>, but through <paramref name="operation"/>: while a run is pending a
     /// new call is ignored and <paramref name="controls"/> stay disabled, so a write cannot be started twice.
+    /// A run that starts clears the previous inline message of the screen.
     /// </summary>
     public static Task<bool> RunExclusiveAsync(
         this Form form,
@@ -42,7 +43,38 @@ internal static class UiExtensions
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(action);
 
-        return operation.RunAsync(() => form.RunAsync(action), controls);
+        return operation.RunAsync(
+            () =>
+            {
+                (form as IStatusSurface)?.ClearStatus();
+                return form.RunAsync(action);
+            },
+            controls);
+    }
+
+    /// <summary>
+    /// Column widths for a list: the <paramref name="fill"/> columns share the free width (at least
+    /// <paramref name="fillMinimum"/> logical pixels), every other visible column fits its content and
+    /// header. A list wider than the grid scrolls sideways instead of cutting values off.
+    /// </summary>
+    public static void FitColumns(this DataGridView grid, int fillMinimum, params string[] fill)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        ArgumentNullException.ThrowIfNull(fill);
+
+        var scale = grid.DeviceDpi / 96F * Theming.Theme.RenderScale;
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            if (fill.Contains(column.DataPropertyName, StringComparer.Ordinal))
+            {
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+                column.MinimumWidth = (int)Math.Round(fillMinimum * scale);
+            }
+            else
+            {
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells;
+            }
+        }
     }
 
     /// <summary>Applies Turkish header texts and hides the columns that are not listed.</summary>
