@@ -6,7 +6,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>KutuphaneYonetim.UI</RootNamespace>
     <AssemblyName>KutuphaneYonetim</AssemblyName>
-    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <Product>Kütüphane Yönetim</Product>
+    <NeutralLanguage>tr-TR</NeutralLanguage>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <UserSecretsId>kutuphane-yonetim-ui</UserSecretsId>
   </PropertyGroup>
 
