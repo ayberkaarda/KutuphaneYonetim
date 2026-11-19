@@ -47,6 +47,11 @@ internal static class ErrorReporter
             return "Veritabanı işlemi tamamlanamadı. SQL Server'ın çalıştığından ve bağlantı ayarlarının doğru olduğundan emin olun.";
         }
 
+        if (Find<IOException>(exception) is not null || Find<UnauthorizedAccessException>(exception) is not null)
+        {
+            return "Dosya yazılamadı. Dosya başka bir programda açık olabilir ya da seçilen klasöre yazma izniniz olmayabilir.";
+        }
+
         if (Find<TimeoutException>(exception) is not null)
         {
             return "İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.";

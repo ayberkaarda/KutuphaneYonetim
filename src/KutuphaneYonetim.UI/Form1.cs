@@ -2,7 +2,7 @@
 
 namespace KutuphaneYonetim.UI
 {
-    /// <summary>Main menu that opens the book, member, loan and reservation screens.</summary>
+    /// <summary>Main menu that opens the book, member, loan, reservation and report screens.</summary>
     public partial class Form1 : Form
     {
         private readonly IFormFactory _formFactory;
@@ -31,6 +31,11 @@ namespace KutuphaneYonetim.UI
         private void btnRezervasyon_Click(object sender, EventArgs e)
         {
             _formFactory.Create<RezervasyonForm>().Show();
+        }
+
+        private void btnRapor_Click(object sender, EventArgs e)
+        {
+            _formFactory.Create<RaporForm>().Show();
         }
     }
 }

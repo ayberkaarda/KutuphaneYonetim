@@ -15,6 +15,7 @@ public sealed class FormLayoutTests
         [nameof(UyeForm)] = () => new UyeForm(null!),
         [nameof(OduncForm)] = () => new OduncForm(null!, null!, null!),
         [nameof(RezervasyonForm)] = () => new RezervasyonForm(null!, null!, null!),
+        [nameof(RaporForm)] = () => new RaporForm(null!, null!),
     };
 
     [Theory]
