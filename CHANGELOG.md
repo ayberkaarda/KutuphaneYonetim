@@ -30,10 +30,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Tests for Turkish error messages and log sanitising.
 - Release job in CI: on `v*` tags a win-x64 build is published and uploaded as a zip artifact.
 - English and Turkish README with architecture diagram, threat model (`docs/THREAT_MODEL.md`) and this changelog.
+- Light, dark and system themes (`Appearance:Theme` in `appsettings.json`) with warm paper neutrals and a
+  binding-wine accent; the Windows high contrast colors are used as they are when high contrast is on.
+- Original logo and application icon (an open book with a bookmark ribbon), generated from `assets/logo.svg`.
+- `tools/Screenshots`: draws the README screenshots at 1x and 2x and builds the icon without opening a window,
+  using in-memory services and invented data.
+- UI tests that build every screen offscreen and check theme contrast, layout at the default and minimum size, tab
+  order, inline messages and the confirmation dialog; no window or message box is shown during the tests.
 
 ### Changed
 
 - The hand-written validation helper was replaced by the validators; messages and trimming are unchanged.
+- Redesigned interface: every screen shares one frame (header, inline message strip, cards and a footer with Kapat
+  on Esc), built in code instead of the designer files. The main menu groups the screens in tiles; lists show
+  loading and empty states, keep the highlight on the row the screen acts on, and mark unpaid fines, overdue loans
+  and held books in color. Inputs, drop-down lists and buttons share one height.
+- Results, validation messages and errors of a screen appear inline instead of in message boxes; questions open a
+  themed confirmation dialog. The reservation cancel question now names the member and the book.
+- The application is per-monitor DPI aware (PerMonitorV2).
 
 ### Fixed
 

@@ -197,13 +197,24 @@ See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the threat model.
 
 ## 🖥️ Screenshots
 
-| "Kütüphane Yönetim" (Main menu) | "Kitap Ekle \| Sil" (Books) |
-| --- | --- |
-| ![Main menu](screenshots/anasayfa.png) | ![Books](screenshots/kitap_ekle_sil.png) |
+The images are drawn offscreen with invented data by `dotnet run --project tools/Screenshots` (no window
+is opened); select an image for its 2x version.
 
-| "Kitap Ödünç Al \| İade Et" (Loans) | "Üye Ekle \| Sil" (Members) |
+| "Kütüphane Yönetim" (Main menu) | "Kitaplar" (Books) |
 | --- | --- |
-| ![Loans](screenshots/kitap_odunc_al.png) | ![Members](screenshots/kullanici_ekle_sil.png) |
+| [![Main menu](screenshots/ana-sayfa.png)](screenshots/ana-sayfa-2x.png) | [![Books](screenshots/kitaplar.png)](screenshots/kitaplar-2x.png) |
+
+| "Üyeler" (Members) | "Ödünç ve İade" (Loans and returns) |
+| --- | --- |
+| [![Members](screenshots/uyeler.png)](screenshots/uyeler-2x.png) | [![Loans and returns](screenshots/odunc-iade.png)](screenshots/odunc-iade-2x.png) |
+
+| "Rezervasyonlar" (Reservations) | "Raporlar" (Reports) |
+| --- | --- |
+| [![Reservations](screenshots/rezervasyonlar.png)](screenshots/rezervasyonlar-2x.png) | [![Reports](screenshots/raporlar.png)](screenshots/raporlar-2x.png) |
+
+| "Onay" (Confirmation) |
+| --- |
+| [![Confirmation](screenshots/onay-penceresi.png)](screenshots/onay-penceresi-2x.png) |
 
 ---
 
