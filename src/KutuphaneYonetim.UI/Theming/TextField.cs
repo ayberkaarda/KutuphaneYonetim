@@ -15,6 +15,9 @@ internal sealed class TextField : Control
         ArgumentNullException.ThrowIfNull(input);
 
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+
+        // The frame never takes the focus itself: a caption's access key and Tab move into the text box.
+        SetStyle(ControlStyles.Selectable, false);
         Input = input;
         Name = input.Name + "Field";
         TabStop = false;
@@ -41,6 +44,12 @@ internal sealed class TextField : Control
     }
 
     public TextBox Input { get; }
+
+    protected override void OnGotFocus(EventArgs e)
+    {
+        base.OnGotFocus(e);
+        Input.Focus();
+    }
 
     protected override void OnClick(EventArgs e)
     {
