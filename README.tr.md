@@ -291,4 +291,4 @@ yanına koyun ya da `KUTUPHANE_CONNECTION` değişkenini tanımlayın.
 
 ## 🧳 Lisans
 
-Kişisel ve eğitimsel kullanım için ücretsizdir. Ticari amaçla kullanılması uygun değildir.
+[MIT Lisansı](LICENSE) ile yayımlanmıştır.
