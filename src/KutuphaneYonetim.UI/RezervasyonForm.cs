@@ -26,6 +26,7 @@ namespace KutuphaneYonetim.UI
         private readonly IMemberService _memberService;
         private readonly IReservationService _reservationService;
         private readonly ExclusiveOperation _write = new();
+        private readonly RequestSequence _listRequests = new();
         private int? _selectedReservationId;
 
         public RezervasyonForm(IBookService bookService, IMemberService memberService, IReservationService reservationService)
@@ -41,25 +42,36 @@ namespace KutuphaneYonetim.UI
 
         private Control[] WriteButtons => [btnRezervasyon, btnIptal];
 
-        private async void RezervasyonForm_Load(object sender, EventArgs e)
+        private async void RezervasyonForm_Load(object sender, EventArgs e) => await this.RunAsync(LoadAsync);
+
+        /// <summary>Initial load of the pickers and the reservation list.</summary>
+        internal async Task LoadAsync()
         {
-            await this.RunAsync(async () =>
-            {
-                cmbKitaplar.DisplayMember = nameof(Book.Title);
-                cmbKitaplar.ValueMember = nameof(Book.Id);
-                cmbKitaplar.DataSource = (await _bookService.GetAllAsync()).OrderBy(b => b.Title, StringComparer.CurrentCulture).ToList();
+            cmbKitaplar.DisplayMember = nameof(Book.Title);
+            cmbKitaplar.ValueMember = nameof(Book.Id);
+            cmbKitaplar.DataSource = (await _bookService.GetAllAsync()).OrderBy(b => b.Title, StringComparer.CurrentCulture).ToList();
 
-                cmbUyeler.DisplayMember = nameof(Member.FullName);
-                cmbUyeler.ValueMember = nameof(Member.Id);
-                cmbUyeler.DataSource = await _memberService.GetAllAsync();
+            cmbUyeler.DisplayMember = nameof(Member.FullName);
+            cmbUyeler.ValueMember = nameof(Member.Id);
+            cmbUyeler.DataSource = await _memberService.GetAllAsync();
 
-                await ListReservationsAsync();
-            });
+            await ListReservationsAsync();
         }
 
+        /// <summary>
+        /// Loads the reservation list; only the most recent of overlapping loads is shown, and the selection is
+        /// cleared together with the list it belonged to.
+        /// </summary>
         private async Task ListReservationsAsync()
         {
-            dataGridView1.DataSource = await _reservationService.GetActiveAsync();
+            var request = _listRequests.Next();
+            var active = await _reservationService.GetActiveAsync();
+            if (!_listRequests.IsLatest(request))
+            {
+                return;
+            }
+
+            dataGridView1.DataSource = active;
             dataGridView1.ConfigureColumns(ColumnHeaders);
             _selectedReservationId = null;
         }
