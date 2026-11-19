@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
@@ -24,6 +25,7 @@ namespace KutuphaneYonetim.UI
         private readonly IBookService _bookService;
         private readonly IMemberService _memberService;
         private readonly IReservationService _reservationService;
+        private readonly ExclusiveOperation _write = new();
         private int? _selectedReservationId;
 
         public RezervasyonForm(IBookService bookService, IMemberService memberService, IReservationService reservationService)
@@ -33,6 +35,11 @@ namespace KutuphaneYonetim.UI
             _reservationService = reservationService;
             InitializeComponent();
         }
+
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        internal UserPrompts Prompts { get; set; } = UserPrompts.Default;
+
+        private Control[] WriteButtons => [btnRezervasyon, btnIptal];
 
         private async void RezervasyonForm_Load(object sender, EventArgs e)
         {
@@ -57,51 +64,59 @@ namespace KutuphaneYonetim.UI
             _selectedReservationId = null;
         }
 
-        private async void btnRezervasyon_Click(object sender, EventArgs e)
-        {
-            if (cmbKitaplar.SelectedValue is not int bookId || cmbUyeler.SelectedValue is not int memberId)
-            {
-                MessageBox.Show("Lütfen rezerve edilecek kitabı ve üyeyi seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+        private async void btnRezervasyon_Click(object sender, EventArgs e) => await ReserveAsync();
 
-            await this.RunAsync(async () =>
+        /// <summary>Reserves the chosen book; a second click while the first reservation is pending is ignored.</summary>
+        internal Task ReserveAsync() => this.RunExclusiveAsync(
+            _write,
+            async () =>
             {
+                if (cmbKitaplar.SelectedValue is not int bookId || cmbUyeler.SelectedValue is not int memberId)
+                {
+                    Prompts.Warn("Lütfen rezerve edilecek kitabı ve üyeyi seçin.");
+                    return;
+                }
+
                 await _reservationService.ReserveAsync(bookId, memberId);
-                MessageBox.Show("Rezervasyon sıraya eklendi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Prompts.Inform("Rezervasyon sıraya eklendi.");
                 await ListReservationsAsync();
-            });
-        }
+            },
+            WriteButtons);
 
-        private async void btnIptal_Click(object sender, EventArgs e)
-        {
-            if (_selectedReservationId is not int reservationId)
-            {
-                MessageBox.Show("Lütfen iptal edilecek rezervasyonu seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+        private async void btnIptal_Click(object sender, EventArgs e) => await CancelReservationAsync();
 
-            DialogResult result = MessageBox.Show("Seçili rezervasyonu iptal etmek istediğinize emin misiniz?", "Onay", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (result != DialogResult.Yes)
+        /// <summary>Cancels the selected reservation after confirmation; ignored while another write is pending.</summary>
+        internal Task CancelReservationAsync() => this.RunExclusiveAsync(
+            _write,
+            async () =>
             {
-                return;
-            }
+                if (_selectedReservationId is not int reservationId)
+                {
+                    Prompts.Warn("Lütfen iptal edilecek rezervasyonu seçin.");
+                    return;
+                }
 
-            await this.RunAsync(async () =>
-            {
+                if (!Prompts.Confirm("Seçili rezervasyonu iptal etmek istediğinize emin misiniz?"))
+                {
+                    return;
+                }
+
                 await _reservationService.CancelAsync(reservationId);
-                MessageBox.Show("Rezervasyon iptal edildi.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Prompts.Inform("Rezervasyon iptal edildi.");
                 await ListReservationsAsync();
-            });
-        }
+            },
+            WriteButtons);
 
         private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is ReservationDetail reservation)
             {
-                _selectedReservationId = reservation.Id;
+                SelectReservation(reservation);
             }
         }
+
+        /// <summary>Makes <paramref name="reservation"/> (a row of the list) the one to cancel.</summary>
+        internal void SelectReservation(ReservationDetail reservation) => _selectedReservationId = reservation.Id;
 
         private void dataGridView1_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {

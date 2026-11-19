@@ -28,6 +28,23 @@ internal static class UiExtensions
         }
     }
 
+    /// <summary>
+    /// Like <see cref="RunAsync"/>, but through <paramref name="operation"/>: while a run is pending a
+    /// new call is ignored and <paramref name="controls"/> stay disabled, so a write cannot be started twice.
+    /// </summary>
+    public static Task<bool> RunExclusiveAsync(
+        this Form form,
+        ExclusiveOperation operation,
+        Func<Task> action,
+        params Control[] controls)
+    {
+        ArgumentNullException.ThrowIfNull(form);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(action);
+
+        return operation.RunAsync(() => form.RunAsync(action), controls);
+    }
+
     /// <summary>Applies Turkish header texts and hides the columns that are not listed.</summary>
     public static void ConfigureColumns(this DataGridView grid, IReadOnlyDictionary<string, string> headers)
     {

@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="KutuphaneYonetim.UI.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\KutuphaneYonetim.Business\KutuphaneYonetim.Business.csproj" />
     <ProjectReference Include="..\KutuphaneYonetim.Data\KutuphaneYonetim.Data.csproj" />
   </ItemGroup>

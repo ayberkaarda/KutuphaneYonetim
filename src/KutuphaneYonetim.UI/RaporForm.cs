@@ -10,7 +10,7 @@ namespace KutuphaneYonetim.UI
     /// </summary>
     public partial class RaporForm : Form
     {
-        private enum ReportKind
+        internal enum ReportKind
         {
             OverdueLoans,
             MostBorrowed,
@@ -33,6 +33,8 @@ namespace KutuphaneYonetim.UI
 
         private readonly IReportService _reportService;
         private readonly ICsvExporter _csvExporter;
+        private readonly RequestSequence _reportRequests = new();
+        private readonly ExclusiveOperation _export = new();
         private ReportTable? _shownTable;
         private ReportKind _shownKind;
 
@@ -43,9 +45,22 @@ namespace KutuphaneYonetim.UI
             InitializeComponent();
         }
 
+        /// <summary>The table on screen (what CSV export writes), from the most recent report request.</summary>
+        internal ReportTable? ShownTable => _shownTable;
+
+        /// <summary>The kind of <see cref="ShownTable"/>.</summary>
+        internal ReportKind ShownKind => _shownKind;
+
         private ReportKind SelectedKind => cmbRapor.SelectedOption(ReportKind.OverdueLoans);
 
         private async void RaporForm_Load(object sender, EventArgs e)
+        {
+            InitializeFilters();
+            await this.RunAsync(ShowReportAsync);
+        }
+
+        /// <summary>Fills the report list and the default date range and count.</summary>
+        internal void InitializeFilters()
         {
             cmbRapor.BindOptions(ReportOptions);
             dtpBitis.Value = DateTime.Today;
@@ -54,8 +69,6 @@ namespace KutuphaneYonetim.UI
             nudAdet.Maximum = 100;
             nudAdet.Value = 10;
             UpdateFilterControls();
-
-            await this.RunAsync(ShowReportAsync);
         }
 
         private async void cmbRapor_SelectionChangeCommitted(object sender, EventArgs e)
@@ -74,8 +87,13 @@ namespace KutuphaneYonetim.UI
             nudAdet.Enabled = range;
         }
 
-        private async Task ShowReportAsync()
+        /// <summary>
+        /// Loads the selected report. When reports are requested faster than they load, only the most recent
+        /// request is shown, so the table and its kind (used for the CSV file name) always belong together.
+        /// </summary>
+        internal async Task ShowReportAsync()
         {
+            var request = _reportRequests.Next();
             var kind = SelectedKind;
             var table = kind switch
             {
@@ -84,6 +102,10 @@ namespace KutuphaneYonetim.UI
                 ReportKind.UnpaidFines => ReportTables.UnpaidFines(await _reportService.GetUnpaidFinesAsync()),
                 _ => ReportTables.OverdueLoans(await _reportService.GetOverdueLoansAsync()),
             };
+            if (!_reportRequests.IsLatest(request))
+            {
+                return;
+            }
 
             ShowTable(table);
             _shownTable = table;
@@ -111,7 +133,9 @@ namespace KutuphaneYonetim.UI
             dataGridView1.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
         }
 
-        private async void btnCsv_Click(object sender, EventArgs e)
+        private async void btnCsv_Click(object sender, EventArgs e) => await this.RunExclusiveAsync(_export, ExportCsvAsync, btnCsv);
+
+        private async Task ExportCsvAsync()
         {
             if (_shownTable is not { } table)
             {
@@ -133,16 +157,12 @@ namespace KutuphaneYonetim.UI
                 return;
             }
 
-            var path = dialog.FileName;
-            await this.RunAsync(async () =>
-            {
-                await _csvExporter.ExportAsync(table, path);
-                MessageBox.Show(
-                    string.Format(CultureInfo.CurrentCulture, "{0} satır CSV dosyasına aktarıldı.", table.Rows.Count),
-                    "Bilgi",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            });
+            await _csvExporter.ExportAsync(table, dialog.FileName);
+            MessageBox.Show(
+                string.Format(CultureInfo.CurrentCulture, "{0} satır CSV dosyasına aktarıldı.", table.Rows.Count),
+                "Bilgi",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
     }
 }

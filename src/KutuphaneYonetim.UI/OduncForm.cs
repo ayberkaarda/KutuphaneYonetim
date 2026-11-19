@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.ComponentModel;
+using System.Globalization;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
@@ -30,6 +31,7 @@ namespace KutuphaneYonetim.UI
         private readonly IBookService _bookService;
         private readonly IMemberService _memberService;
         private readonly ILoanService _loanService;
+        private readonly ExclusiveOperation _write = new();
         private int? _selectedBookId;
 
         public OduncForm(IBookService bookService, IMemberService memberService, ILoanService loanService)
@@ -39,6 +41,11 @@ namespace KutuphaneYonetim.UI
             _loanService = loanService;
             InitializeComponent();
         }
+
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        internal UserPrompts Prompts { get; set; } = UserPrompts.Default;
+
+        private Control[] WriteButtons => [btnOduncAl, btnIadeEt];
 
         private async void OduncForm_Load(object sender, EventArgs e)
         {
@@ -71,40 +78,46 @@ namespace KutuphaneYonetim.UI
             dataGridView1.FormatDateColumns(nameof(LoanDetail.DueDate));
         }
 
-        private async void btnOduncAl_Click(object sender, EventArgs e)
-        {
-            if (cmbKitaplar.SelectedValue is not int bookId || cmbUyeler.SelectedValue is not int memberId)
-            {
-                MessageBox.Show("Lütfen ödünç verilecek kitabı ve üyeyi seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+        private async void btnOduncAl_Click(object sender, EventArgs e) => await LendAsync();
 
-            await this.RunAsync(async () =>
+        /// <summary>Lends the chosen book; a second click while the first loan is pending is ignored.</summary>
+        internal Task LendAsync() => this.RunExclusiveAsync(
+            _write,
+            async () =>
             {
+                if (cmbKitaplar.SelectedValue is not int bookId || cmbUyeler.SelectedValue is not int memberId)
+                {
+                    Prompts.Warn("Lütfen ödünç verilecek kitabı ve üyeyi seçin.");
+                    return;
+                }
+
                 await _loanService.LendAsync(bookId, memberId, dtpTeslim.Value.Date);
                 await LoadComboBoxesAsync();
                 await ListLoansAsync();
                 dtpTeslim.Value = _loanService.GetDefaultDueDate();
-            });
-        }
+            },
+            WriteButtons);
 
-        private async void btnIadeEt_Click(object sender, EventArgs e)
-        {
-            if (_selectedBookId is not int bookId)
-            {
-                MessageBox.Show("Lütfen iade edilecek kitabı seçin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+        private async void btnIadeEt_Click(object sender, EventArgs e) => await ReturnAsync();
 
-            await this.RunAsync(async () =>
+        /// <summary>Takes the selected book back; a second click while the first return is pending is ignored.</summary>
+        internal Task ReturnAsync() => this.RunExclusiveAsync(
+            _write,
+            async () =>
             {
+                if (_selectedBookId is not int bookId)
+                {
+                    Prompts.Warn("Lütfen iade edilecek kitabı seçin.");
+                    return;
+                }
+
                 var receipt = await _loanService.ReturnAsync(bookId);
-                MessageBox.Show(DescribeReturn(receipt), "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Prompts.Inform(DescribeReturn(receipt));
                 await LoadComboBoxesAsync();
                 await ListLoansAsync();
                 _selectedBookId = null;
-            });
-        }
+            },
+            WriteButtons);
 
         private static string DescribeReturn(ReturnReceipt receipt)
         {
@@ -132,8 +145,11 @@ namespace KutuphaneYonetim.UI
         {
             if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is LoanDetail loan)
             {
-                _selectedBookId = loan.BookId;
+                SelectLoan(loan);
             }
         }
+
+        /// <summary>Makes the book of <paramref name="loan"/> (a row of the list) the one to return.</summary>
+        internal void SelectLoan(LoanDetail loan) => _selectedBookId = loan.BookId;
     }
 }
