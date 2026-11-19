@@ -105,7 +105,7 @@ public sealed class LegacyUpgradeTests
                 Assert.All(allLoans, l => Assert.Null(l.DueDate)); // Legacy loans have no due date.
 
                 // New rows, lending and returning work on the upgraded schema.
-                var book = await books.AddAsync("Yeni Kitap", "Yeni Yazar", ct);
+                var book = await books.AddAsync("Yeni Kitap", "Yeni Yazar", cancellationToken: ct);
                 var member = await members.AddAsync("Yeni", "Uye", ct);
                 Assert.True(book.Id > 12);
                 Assert.True(member.Id > 7);

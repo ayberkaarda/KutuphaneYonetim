@@ -1,4 +1,5 @@
 using System.Data.Common;
+using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -180,7 +181,7 @@ public sealed class RepositoryTests : IAsyncLifetime
         Assert.Equal(2.25m, await Loans.GetUnpaidFineTotalAsync(2, Ct));
         Assert.Equal(0m, await Loans.GetUnpaidFineTotalAsync(1, Ct));
 
-        var summaries = await Members.GetSummariesAsync(Ct);
+        var summaries = (await Members.SearchAsync(new MemberQuery(), Ct)).Items;
         Assert.Equal([0m, 2.25m, 7.50m], summaries.Select(m => m.UnpaidFine));
 
         var paidDate = DueDate.AddDays(4);
@@ -204,7 +205,7 @@ public sealed class RepositoryTests : IAsyncLifetime
     {
         Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 2, LoanDate, DueDate, Ct));
 
-        var summaries = await Members.GetSummariesAsync(Ct);
+        var summaries = (await Members.SearchAsync(new MemberQuery(), Ct)).Items;
 
         Assert.Equal([1, 2, 3], summaries.Select(m => m.Id));
         Assert.Equal([0, 2, 0], summaries.Select(m => m.ActiveLoanCount)); // Member 2 also has the seeded open loan.

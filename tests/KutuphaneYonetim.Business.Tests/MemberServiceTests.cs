@@ -1,5 +1,6 @@
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Business.Validation;
+using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 using Moq;
@@ -147,5 +148,33 @@ public sealed class MemberServiceTests
 
         Assert.Equal("Seçilen üye bulunamadı.", error.Message);
         _loans.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task SearchAsync_NormalisesTextAndPaging()
+    {
+        MemberQuery? sent = null;
+        _members.Setup(m => m.SearchAsync(It.IsAny<MemberQuery>(), It.IsAny<CancellationToken>()))
+            .Callback<MemberQuery, CancellationToken>((q, _) => sent = q)
+            .ReturnsAsync(new PagedResult<MemberSummary>([], 0, 1, 1));
+
+        await _service.SearchAsync(
+            new MemberQuery("  Ayşe Y ", MemberFilter.WithUnpaidFine, Page: -3, PageSize: 0), TestContext.Current.CancellationToken);
+
+        Assert.Equal(new MemberQuery("Ayşe Y", MemberFilter.WithUnpaidFine, 1, 1), sent);
+    }
+
+    [Fact]
+    public async Task SearchAsync_PageBeyondTheEnd_ReturnsLastPage()
+    {
+        _members.Setup(m => m.SearchAsync(It.Is<MemberQuery>(q => q.Page == 4), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<MemberSummary>([], 3, 4, 2));
+        _members.Setup(m => m.SearchAsync(It.Is<MemberQuery>(q => q.Page == 2), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<MemberSummary>([new MemberSummary { Id = 3 }], 3, 2, 2));
+
+        var result = await _service.SearchAsync(new MemberQuery(Page: 4, PageSize: 2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.Page);
+        Assert.Equal(3, Assert.Single(result.Items).Id);
     }
 }

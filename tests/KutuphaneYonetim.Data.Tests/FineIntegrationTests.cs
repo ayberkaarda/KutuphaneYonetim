@@ -1,5 +1,6 @@
 using KutuphaneYonetim.Business;
 using KutuphaneYonetim.Business.Services;
+using KutuphaneYonetim.Domain;
 
 namespace KutuphaneYonetim.Data.Tests;
 
@@ -46,12 +47,12 @@ public sealed class FineIntegrationTests : IAsyncLifetime
         Assert.Equal(new ReturnReceipt(1, 1.50m), await Loans.ReturnAsync(5, Ct));
 
         // 4.50 is above the threshold.
-        Assert.Equal(4.50m, (await Members.GetSummariesAsync(Ct)).Single(m => m.Id == 3).UnpaidFine);
+        Assert.Equal(4.50m, (await Members.SearchAsync(new MemberQuery(), Ct)).Items.Single(m => m.Id == 3).UnpaidFine);
         var refused = await Assert.ThrowsAsync<BusinessRuleException>(() => Loans.LendAsync(6, 3, cancellationToken: Ct));
         Assert.StartsWith("Bu üyenin ödenmemiş cezası", refused.Message, StringComparison.Ordinal);
 
         Assert.Equal(4.50m, await Members.PayFinesAsync(3, Ct));
-        Assert.Equal(0m, (await Members.GetSummariesAsync(Ct)).Single(m => m.Id == 3).UnpaidFine);
+        Assert.Equal(0m, (await Members.SearchAsync(new MemberQuery(), Ct)).Items.Single(m => m.Id == 3).UnpaidFine);
         await Loans.LendAsync(6, 3, cancellationToken: Ct);
     }
 

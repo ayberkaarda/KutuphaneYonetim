@@ -41,6 +41,11 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("durum");
 
+                    b.Property<string>("Isbn")
+                        .HasMaxLength(13)
+                        .HasColumnType("nvarchar(13)")
+                        .HasColumnName("isbn");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -56,6 +61,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasName("PK_Kitaplar");
 
                     b.HasIndex(new[] { "Title" }, "IX_Kitaplar_ad");
+
+                    b.HasIndex(new[] { "Isbn" }, "IX_Kitaplar_isbn");
 
                     b.ToTable("Kitaplar", (string)null);
 

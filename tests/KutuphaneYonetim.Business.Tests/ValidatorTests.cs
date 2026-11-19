@@ -109,4 +109,26 @@ public sealed class ValidatorTests
         Assert.NotNull(provider.GetRequiredService<IMemberService>());
         Assert.NotNull(provider.GetRequiredService<ILoanService>());
     }
+
+    [Theory]
+    [InlineData("9789750719387", true)]
+    [InlineData("9786053600008", true)]
+    [InlineData("0306406152", true)]
+    [InlineData("080442957X", true)]
+    [InlineData("9789750719388", false)]
+    [InlineData("0306406151", false)]
+    [InlineData("03064061X2", false)] // X is only allowed as the ISBN-10 check digit.
+    [InlineData("123", false)]
+    public void IsbnFormat_ValidatesCheckDigit(string isbn, bool expectedValid)
+    {
+        Assert.Equal(expectedValid, IsbnFormat.IsValid(isbn));
+    }
+
+    [Fact]
+    public void PagedResult_PageCount_RoundsUpAndIsAtLeastOne()
+    {
+        Assert.Equal(1, new Domain.PagedResult<int>([], 0, 1, 50).PageCount);
+        Assert.Equal(1, new Domain.PagedResult<int>([], 50, 1, 50).PageCount);
+        Assert.Equal(2, new Domain.PagedResult<int>([], 51, 1, 50).PageCount);
+    }
 }

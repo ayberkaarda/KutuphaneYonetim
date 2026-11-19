@@ -53,6 +53,10 @@ internal sealed class BookInputValidator : AbstractValidator<BookInput>
 
         RuleFor(b => b.Title).RequiredText("Kitap adı", MaxTitleLength);
         RuleFor(b => b.Author).RequiredText("Yazar", MaxAuthorLength);
+        RuleFor(b => b.Isbn!)
+            .Must(IsbnFormat.IsValid)
+            .When(b => b.Isbn is not null)
+            .WithMessage("ISBN geçersiz. 10 veya 13 haneli, kontrol hanesi doğru bir ISBN girin.");
     }
 }
 

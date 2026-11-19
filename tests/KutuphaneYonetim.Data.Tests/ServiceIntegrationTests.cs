@@ -21,7 +21,7 @@ public sealed class ServiceIntegrationTests : IAsyncLifetime
         var members = _db.Get<IMemberService>();
         var loans = _db.Get<ILoanService>();
 
-        var book = await books.AddAsync("  Deneme Kitabı ", " Deneme Yazar ", Ct);
+        var book = await books.AddAsync("  Deneme Kitabı ", " Deneme Yazar ", cancellationToken: Ct);
         var member = await members.AddAsync(" Ali ", " Veli ", Ct);
         Assert.Equal("Deneme Kitabı", book.Title);
 
@@ -42,7 +42,7 @@ public sealed class ServiceIntegrationTests : IAsyncLifetime
         Assert.Contains("geçmişi", history.Message, StringComparison.Ordinal);
 
         // Records without loans can be deleted.
-        var spare = await books.AddAsync("Yedek", "Yazar", Ct);
+        var spare = await books.AddAsync("Yedek", "Yazar", cancellationToken: Ct);
         await books.DeleteAsync(spare.Id, Ct);
         Assert.DoesNotContain(await books.GetAllAsync(Ct), b => b.Id == spare.Id);
     }

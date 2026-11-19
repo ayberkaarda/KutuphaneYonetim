@@ -1,5 +1,6 @@
 using FluentValidation;
 using KutuphaneYonetim.Business.Validation;
+using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.Domain.Repositories;
 
@@ -9,8 +10,11 @@ public interface IMemberService
 {
     Task<IReadOnlyList<Member>> GetAllAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Members with their open loan count and unpaid fine total.</summary>
-    Task<IReadOnlyList<MemberSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Searches first and last names with a filter (unpaid fines, open loans), one page at a time. Each row
+    /// carries the open loan count and unpaid fine total of the member.
+    /// </summary>
+    Task<PagedResult<MemberSummary>> SearchAsync(MemberQuery query, CancellationToken cancellationToken = default);
 
     Task<Member> AddAsync(string firstName, string lastName, CancellationToken cancellationToken = default);
 
@@ -29,8 +33,15 @@ internal sealed class MemberService(
     public Task<IReadOnlyList<Member>> GetAllAsync(CancellationToken cancellationToken = default) =>
         members.GetAllAsync(cancellationToken);
 
-    public Task<IReadOnlyList<MemberSummary>> GetSummariesAsync(CancellationToken cancellationToken = default) =>
-        members.GetSummariesAsync(cancellationToken);
+    public Task<PagedResult<MemberSummary>> SearchAsync(MemberQuery query, CancellationToken cancellationToken = default)
+    {
+        var normalized = SearchPaging.Normalize(query);
+        return SearchPaging.SearchAsync(
+            normalized,
+            normalized.Page,
+            q => members.SearchAsync(q, cancellationToken),
+            (q, page) => q with { Page = page });
+    }
 
     public async Task<Member> AddAsync(string firstName, string lastName, CancellationToken cancellationToken = default)
     {
