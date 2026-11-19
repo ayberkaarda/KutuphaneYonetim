@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Due dates for loans (default loan period from the new `Library` settings section) and late return fines per day
+  past the due date. Members see their open loans and unpaid fines, fines can be marked paid, and a member whose
+  unpaid fines exceed a configurable threshold cannot borrow. Existing loans keep working without a due date.
+- Search, filters and paging for books (title, author, ISBN; available, on loan, held) and members (name; unpaid
+  fines, open loans). Books get an optional, check-digit validated ISBN.
+- Reservation queue for books on loan: a returned book is held for the first member in the queue for a configurable
+  number of days, nobody else can borrow it meanwhile, and an expired hold moves on to the next member. One active
+  reservation per member and book is enforced by a filtered unique index.
+- Reports screen: overdue books, most borrowed books in a date range and unpaid fines, exported to CSV (UTF-8 with
+  BOM, `;`, spreadsheet formula neutralising, written to a temporary file and then moved into place).
+- Tests for fine boundaries, reservation order and expiry, search, reports and CSV, screen layout, and an opt-in
+  test that upgrades a restored backup of the original database.
+
 - Daily rolling file logs with Serilog under `%LOCALAPPDATA%\KutuphaneYonetim\logs` (last 30 files kept).
   Exception messages and personal data are not logged.
 - Central FluentValidation validators for book, member and loan input in the Business layer.
@@ -24,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- File write errors (for example a CSV file open in another program) show a Turkish explanation.
 - Unexpected error dialogs no longer show the raw (often English) exception message; they show a Turkish
   message and point to the log file.
 
