@@ -38,6 +38,7 @@ public sealed class ConfigurationTests
         Assert.Equal(14, policy.LoanPeriodDays);
         Assert.Equal(2.50m, policy.DailyFine);
         Assert.Equal(0m, policy.MaxUnpaidFine);
+        Assert.Equal(3, policy.ReservationHoldDays);
     }
 
     [Fact]
@@ -53,6 +54,7 @@ public sealed class ConfigurationTests
     [InlineData("LoanPeriodDays", "0")]
     [InlineData("LoanPeriodDays", "abc")]
     [InlineData("DailyFine", "-1")]
+    [InlineData("ReservationHoldDays", "0")]
     public void LibraryPolicy_InvalidValues_AreReported(string key, string value)
     {
         var configuration = new ConfigurationBuilder()

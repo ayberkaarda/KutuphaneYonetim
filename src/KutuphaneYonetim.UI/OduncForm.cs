@@ -106,14 +106,27 @@ namespace KutuphaneYonetim.UI
             });
         }
 
-        private static string DescribeReturn(ReturnReceipt receipt) =>
-            receipt.Fine > 0
+        private static string DescribeReturn(ReturnReceipt receipt)
+        {
+            var text = receipt.Fine > 0
                 ? string.Format(
                     CultureInfo.CurrentCulture,
                     "Kitap iade edildi. {0} gün gecikme için {1:N2} TL ceza kaydedildi.",
                     receipt.OverdueDays,
                     receipt.Fine)
                 : "Kitap başarıyla iade edildi.";
+
+            if (receipt.HeldForMemberName is { } member && receipt.HeldUntil is { } until)
+            {
+                text += string.Format(
+                    CultureInfo.CurrentCulture,
+                    "\n\nKitap rezervasyon sırasındaki {0} için {1:g} tarihine kadar ayrıldı.",
+                    member,
+                    until);
+            }
+
+            return text;
+        }
 
         private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
         {

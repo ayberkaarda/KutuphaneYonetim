@@ -32,6 +32,7 @@
             this.btnKitap = new System.Windows.Forms.Button();
             this.btnUye = new System.Windows.Forms.Button();
             this.btnOdunc = new System.Windows.Forms.Button();
+            this.btnRezervasyon = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // btnKitap
@@ -56,7 +57,7 @@
             // 
             // btnOdunc
             // 
-            this.btnOdunc.Location = new System.Drawing.Point(200, 174);
+            this.btnOdunc.Location = new System.Drawing.Point(45, 174);
             this.btnOdunc.Name = "btnOdunc";
             this.btnOdunc.Size = new System.Drawing.Size(168, 71);
             this.btnOdunc.TabIndex = 2;
@@ -64,11 +65,22 @@
             this.btnOdunc.UseVisualStyleBackColor = true;
             this.btnOdunc.Click += new System.EventHandler(this.btnOdunc_Click);
             // 
+            // btnRezervasyon
+            // 
+            this.btnRezervasyon.Location = new System.Drawing.Point(340, 174);
+            this.btnRezervasyon.Name = "btnRezervasyon";
+            this.btnRezervasyon.Size = new System.Drawing.Size(168, 71);
+            this.btnRezervasyon.TabIndex = 3;
+            this.btnRezervasyon.Text = "Rezervasyonlar";
+            this.btnRezervasyon.UseVisualStyleBackColor = true;
+            this.btnRezervasyon.Click += new System.EventHandler(this.btnRezervasyon_Click);
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(565, 279);
+            this.Controls.Add(this.btnRezervasyon);
             this.Controls.Add(this.btnOdunc);
             this.Controls.Add(this.btnUye);
             this.Controls.Add(this.btnKitap);
@@ -84,6 +96,7 @@
         private System.Windows.Forms.Button btnKitap;
         private System.Windows.Forms.Button btnUye;
         private System.Windows.Forms.Button btnOdunc;
+        private System.Windows.Forms.Button btnRezervasyon;
     }
 }
 

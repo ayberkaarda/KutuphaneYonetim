@@ -22,6 +22,7 @@ namespace KutuphaneYonetim.UI
             new("Tüm kitaplar", BookAvailability.All),
             new("Müsait", BookAvailability.Available),
             new("Ödünçte", BookAvailability.OnLoan),
+            new("Rezervasyon için ayrılmış", BookAvailability.Reserved),
         ];
 
         private readonly IBookService _bookService;
