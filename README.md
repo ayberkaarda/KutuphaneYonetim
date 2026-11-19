@@ -293,4 +293,4 @@ or set `KUTUPHANE_CONNECTION`.
 
 ## 🧳 License
 
-Free for personal and educational use. Commercial use is not permitted.
+Released under the [MIT License](LICENSE).
