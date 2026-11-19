@@ -32,15 +32,6 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
         return await query.ToListAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<Reservation?> GetHoldAsync(int bookId, CancellationToken cancellationToken = default)
-    {
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        return await db.Reservations
-            .AsNoTracking()
-            .SingleOrDefaultAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Ready, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
     public async Task<bool> HasActiveAsync(int bookId, int memberId, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -62,30 +53,69 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
         return await db.Reservations.AnyAsync(r => r.MemberId == memberId, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<int?> AddAsync(int bookId, int memberId, DateTime createdAt, CancellationToken cancellationToken = default)
+    public async Task<ReserveOutcome> AddAsync(
+        int bookId, int memberId, DateTime createdAt, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        var reservation = new Reservation
+        // A return cannot slip in between the checks and the insert and leave the queue unserved.
+        await BookLock.AcquireAsync(db, bookId, cancellationToken).ConfigureAwait(false);
+
+        var book = await db.Books.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken).ConfigureAwait(false);
+        if (book is null)
+        {
+            return ReserveOutcome.BookNotFound;
+        }
+
+        var borrowerId = await db.Loans
+            .Where(l => l.BookId == bookId && l.ReturnDate == null)
+            .Select(l => (int?)l.MemberId)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (borrowerId == memberId)
+        {
+            return ReserveOutcome.BorrowedByMember;
+        }
+
+        var held = await db.Reservations
+            .AnyAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Ready, cancellationToken)
+            .ConfigureAwait(false);
+        if (borrowerId is null && book.IsAvailable && !held)
+        {
+            return ReserveOutcome.OnShelf;
+        }
+
+        var alreadyActive = await db.Reservations
+            .Where(ReservationQueue.Active)
+            .AnyAsync(r => r.BookId == bookId && r.MemberId == memberId, cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyActive)
+        {
+            return ReserveOutcome.AlreadyActive;
+        }
+
+        db.Reservations.Add(new Reservation
         {
             BookId = bookId,
             MemberId = memberId,
             CreatedAt = createdAt,
             Status = ReservationStatus.Waiting,
-        };
-        db.Reservations.Add(reservation);
+        });
 
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return reservation.Id;
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return ReserveOutcome.Added;
         }
         catch (DbUpdateException)
         {
             // The filtered unique index rejected a second active reservation of the same member.
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             if (await HasActiveAsync(bookId, memberId, cancellationToken).ConfigureAwait(false))
             {
-                return null;
+                return ReserveOutcome.AlreadyActive;
             }
 
             throw;

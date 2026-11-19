@@ -2,13 +2,26 @@ using KutuphaneYonetim.Domain.Entities;
 
 namespace KutuphaneYonetim.Domain.Repositories;
 
+/// <summary>Result of <see cref="IReservationRepository.AddAsync"/>.</summary>
+public enum ReserveOutcome
+{
+    Added,
+    BookNotFound,
+
+    /// <summary>The book is on the shelf and not held: it can be lent right away instead.</summary>
+    OnShelf,
+
+    /// <summary>The member has the book on loan.</summary>
+    BorrowedByMember,
+
+    /// <summary>The member already has an active reservation for the book.</summary>
+    AlreadyActive,
+}
+
 public interface IReservationRepository
 {
     /// <summary>Waiting and ready reservations, ordered by book and then by queue order (created, id).</summary>
     Task<IReadOnlyList<ReservationDetail>> GetActiveDetailsAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>The reservation the book is currently held for, or null.</summary>
-    Task<Reservation?> GetHoldAsync(int bookId, CancellationToken cancellationToken = default);
 
     Task<bool> HasActiveAsync(int bookId, int memberId, CancellationToken cancellationToken = default);
 
@@ -17,10 +30,13 @@ public interface IReservationRepository
     Task<bool> HasAnyForMemberAsync(int memberId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adds a waiting reservation. Returns null when the member already has an active reservation for the
-    /// book (also enforced by a filtered unique index).
+    /// Adds a waiting reservation when the book is on loan to someone else or held for another member.
+    /// The checks and the insert run in one transaction that is serialised with lending, returns,
+    /// cancellations and hold expiry of the same book, so a book that comes back concurrently is either
+    /// seen on the shelf (<see cref="ReserveOutcome.OnShelf"/>) or returned after the insert and served to
+    /// the queue. A second active reservation of the same member is refused (also by a filtered unique index).
     /// </summary>
-    Task<int?> AddAsync(int bookId, int memberId, DateTime createdAt, CancellationToken cancellationToken = default);
+    Task<ReserveOutcome> AddAsync(int bookId, int memberId, DateTime createdAt, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cancels an active reservation. When the book was held for it and is on the shelf, the next waiting

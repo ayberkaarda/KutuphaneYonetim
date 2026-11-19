@@ -25,7 +25,6 @@ public interface IReservationService
 internal sealed class ReservationService(
     IBookRepository books,
     IMemberRepository members,
-    ILoanRepository loans,
     IReservationRepository reservations,
     LibraryPolicy policy,
     TimeProvider timeProvider) : IReservationService
@@ -51,7 +50,7 @@ internal sealed class ReservationService(
 
     public async Task ReserveAsync(int bookId, int memberId, CancellationToken cancellationToken = default)
     {
-        var book = await books.GetByIdAsync(bookId, cancellationToken).ConfigureAwait(false)
+        _ = await books.GetByIdAsync(bookId, cancellationToken).ConfigureAwait(false)
             ?? throw new BusinessRuleException(Messages.BookNotFound);
 
         _ = await members.GetByIdAsync(memberId, cancellationToken).ConfigureAwait(false)
@@ -59,26 +58,23 @@ internal sealed class ReservationService(
 
         await ExpireHoldsAsync(cancellationToken).ConfigureAwait(false);
 
-        var loan = await loans.GetActiveLoanForBookAsync(bookId, cancellationToken).ConfigureAwait(false);
-        if (loan?.MemberId == memberId)
+        // Eligibility (on loan or held, not the member's own loan, no duplicate) is checked by the repository
+        // in the same per-book serialised transaction as the insert, so a concurrent return cannot leave
+        // this reservation waiting for a book on the shelf.
+        var outcome = await reservations.AddAsync(bookId, memberId, Now(), cancellationToken).ConfigureAwait(false);
+        switch (outcome)
         {
-            throw new BusinessRuleException("Bu kitap zaten bu üyede; kendi ödünç aldığı kitabı rezerve edemez.");
+            case ReserveOutcome.Added:
+                return;
+            case ReserveOutcome.BookNotFound:
+                throw new BusinessRuleException(Messages.BookNotFound);
+            case ReserveOutcome.BorrowedByMember:
+                throw new BusinessRuleException("Bu kitap zaten bu üyede; kendi ödünç aldığı kitabı rezerve edemez.");
+            case ReserveOutcome.OnShelf:
+                throw new BusinessRuleException("Bu kitap rafta. Rezervasyon yerine doğrudan ödünç verilebilir.");
+            default:
+                throw new BusinessRuleException(AlreadyReserved);
         }
-
-        if (loan is null && book.IsAvailable
-            && await reservations.GetHoldAsync(bookId, cancellationToken).ConfigureAwait(false) is null)
-        {
-            throw new BusinessRuleException("Bu kitap rafta. Rezervasyon yerine doğrudan ödünç verilebilir.");
-        }
-
-        if (await reservations.HasActiveAsync(bookId, memberId, cancellationToken).ConfigureAwait(false))
-        {
-            throw new BusinessRuleException(AlreadyReserved);
-        }
-
-        // The filtered unique index catches a duplicate made concurrently.
-        _ = await reservations.AddAsync(bookId, memberId, Now(), cancellationToken).ConfigureAwait(false)
-            ?? throw new BusinessRuleException(AlreadyReserved);
     }
 
     public async Task CancelAsync(int reservationId, CancellationToken cancellationToken = default)

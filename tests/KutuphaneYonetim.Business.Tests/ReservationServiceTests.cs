@@ -12,7 +12,6 @@ public sealed class ReservationServiceTests
 
     private readonly Mock<IBookRepository> _books = new(MockBehavior.Strict);
     private readonly Mock<IMemberRepository> _members = new(MockBehavior.Strict);
-    private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
     private readonly Mock<IReservationRepository> _reservations = new(MockBehavior.Strict);
     private readonly LibraryPolicy _policy = new() { ReservationHoldDays = 3 };
     private readonly ReservationService _service;
@@ -20,93 +19,44 @@ public sealed class ReservationServiceTests
     public ReservationServiceTests()
     {
         _service = new ReservationService(
-            _books.Object, _members.Object, _loans.Object, _reservations.Object, _policy, new FixedTimeProvider(Now));
+            _books.Object, _members.Object, _reservations.Object, _policy, new FixedTimeProvider(Now));
         _reservations.Setup(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>())).ReturnsAsync(0);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private void GivenBook(int bookId, bool onShelf, int? borrowerId = null, int? heldForMemberId = null)
+    private void GivenBook(int bookId, ReserveOutcome outcome)
     {
         _books.Setup(b => b.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Book { Id = bookId, IsAvailable = onShelf });
+            .ReturnsAsync(new Book { Id = bookId });
         _members.Setup(m => m.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((int id, CancellationToken _) => new Member { Id = id });
-        _loans.Setup(l => l.GetActiveLoanForBookAsync(bookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(borrowerId is int borrower ? new Loan { Id = 50, BookId = bookId, MemberId = borrower } : null);
-        _reservations.Setup(r => r.GetHoldAsync(bookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(heldForMemberId is int held
-                ? new Reservation { Id = 60, BookId = bookId, MemberId = held, Status = ReservationStatus.Ready }
-                : null);
+        _reservations.Setup(r => r.AddAsync(bookId, It.IsAny<int>(), LocalNow, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome);
     }
 
     [Fact]
-    public async Task ReserveAsync_BookOnLoan_AddsWaitingReservationWithCurrentTime()
+    public async Task ReserveAsync_Added_UsesCurrentTime()
     {
-        GivenBook(2, onShelf: false, borrowerId: 9);
-        _reservations.Setup(r => r.HasActiveAsync(2, 4, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-        _reservations.Setup(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        GivenBook(2, ReserveOutcome.Added);
 
         await _service.ReserveAsync(2, 4, Ct);
 
         _reservations.Verify(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Fact]
-    public async Task ReserveAsync_BookHeldForSomeoneElse_JoinsTheQueue()
+    [Theory]
+    [InlineData(ReserveOutcome.OnShelf, "Bu kitap rafta. Rezervasyon yerine doğrudan ödünç verilebilir.")]
+    [InlineData(ReserveOutcome.BorrowedByMember, "Bu kitap zaten bu üyede; kendi ödünç aldığı kitabı rezerve edemez.")]
+    [InlineData(ReserveOutcome.AlreadyActive, "Bu üyenin bu kitap için zaten aktif bir rezervasyonu var.")]
+    [InlineData(ReserveOutcome.BookNotFound, "Seçilen kitap bulunamadı.")]
+    public async Task ReserveAsync_RefusedByRepository_ShowsReason(ReserveOutcome outcome, string expectedMessage)
     {
-        GivenBook(2, onShelf: true, heldForMemberId: 9);
-        _reservations.Setup(r => r.HasActiveAsync(2, 4, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-        _reservations.Setup(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>())).ReturnsAsync(1);
-
-        await _service.ReserveAsync(2, 4, Ct);
-
-        _reservations.Verify(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task ReserveAsync_BookOnTheShelf_IsRejected()
-    {
-        GivenBook(2, onShelf: true);
+        GivenBook(2, outcome);
 
         var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
 
-        Assert.Equal("Bu kitap rafta. Rezervasyon yerine doğrudan ödünç verilebilir.", error.Message);
-        _reservations.Verify(r => r.AddAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task ReserveAsync_BorrowerReservesOwnBook_IsRejected()
-    {
-        GivenBook(2, onShelf: false, borrowerId: 4);
-
-        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
-
-        Assert.StartsWith("Bu kitap zaten bu üyede", error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ReserveAsync_SecondActiveReservationOfSameMember_IsRejected()
-    {
-        GivenBook(2, onShelf: false, borrowerId: 9);
-        _reservations.Setup(r => r.HasActiveAsync(2, 4, It.IsAny<CancellationToken>())).ReturnsAsync(true);
-
-        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
-
-        Assert.Equal("Bu üyenin bu kitap için zaten aktif bir rezervasyonu var.", error.Message);
-        _reservations.Verify(r => r.AddAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task ReserveAsync_DuplicateCaughtByUniqueIndex_IsRejected()
-    {
-        GivenBook(2, onShelf: false, borrowerId: 9);
-        _reservations.Setup(r => r.HasActiveAsync(2, 4, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-        _reservations.Setup(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>())).ReturnsAsync((int?)null);
-
-        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
-
-        Assert.Equal("Bu üyenin bu kitap için zaten aktif bir rezervasyonu var.", error.Message);
+        Assert.Equal(expectedMessage, error.Message);
     }
 
     [Fact]
@@ -128,12 +78,18 @@ public sealed class ReservationServiceTests
     public async Task ReserveAsync_ProcessesExpiredHoldsFirst()
     {
         // The stale hold is expired first, so the book is seen as on the shelf afterwards.
-        _reservations.Setup(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        GivenBook(2, onShelf: true);
+        var calls = new List<string>();
+        _reservations.Setup(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>()))
+            .Callback(() => calls.Add("expire"))
+            .ReturnsAsync(1);
+        GivenBook(2, ReserveOutcome.OnShelf);
+        _reservations.Setup(r => r.AddAsync(2, 4, LocalNow, It.IsAny<CancellationToken>()))
+            .Callback(() => calls.Add("add"))
+            .ReturnsAsync(ReserveOutcome.OnShelf);
 
         await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReserveAsync(2, 4, Ct));
 
-        _reservations.Verify(r => r.ExpireHoldsAsync(LocalNow, LocalNow.AddDays(3), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(["expire", "add"], calls);
     }
 
     [Fact]
