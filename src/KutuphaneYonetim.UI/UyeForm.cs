@@ -1,11 +1,12 @@
-﻿using System.Globalization;
+using System.Globalization;
 using KutuphaneYonetim.Business.Services;
+using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
 
 namespace KutuphaneYonetim.UI
 {
-    /// <summary>Lists, adds and deletes members, shows their unpaid fines and takes fine payments.</summary>
+    /// <summary>Searches, lists, adds and deletes members, shows their unpaid fines and takes fine payments.</summary>
     public partial class UyeForm : Form
     {
         private static readonly Dictionary<string, string> ColumnHeaders = new()
@@ -17,24 +18,69 @@ namespace KutuphaneYonetim.UI
             [nameof(MemberSummary.UnpaidFine)] = "Ödenmemiş Ceza (TL)",
         };
 
+        private static readonly ListOption<MemberFilter>[] FilterOptions =
+        [
+            new("Tüm üyeler", MemberFilter.All),
+            new("Ödenmemiş cezası olanlar", MemberFilter.WithUnpaidFine),
+            new("Açık ödüncü olanlar", MemberFilter.WithActiveLoan),
+        ];
+
         private readonly IMemberService _memberService;
+        private readonly Pager _pager;
         private int? _selectedMemberId;
 
         public UyeForm(IMemberService memberService)
         {
             _memberService = memberService;
             InitializeComponent();
+            _pager = new Pager(btnOnceki, btnSonraki, lblSayfa);
         }
 
         private async Task ListMembersAsync()
         {
-            dataGridView1.DataSource = await _memberService.GetSummariesAsync();
+            var query = new MemberQuery(txtAra.Text, cmbFiltre.SelectedOption(MemberFilter.All), _pager.Page);
+            var result = await _memberService.SearchAsync(query);
+
+            dataGridView1.DataSource = result.Items;
             dataGridView1.ConfigureColumns(ColumnHeaders);
             dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
+            _pager.Show(result);
+        }
+
+        private async Task SearchFromFirstPageAsync()
+        {
+            _pager.Reset();
+            await this.RunAsync(ListMembersAsync);
         }
 
         private async void UyeForm_Load(object sender, EventArgs e)
         {
+            cmbFiltre.BindOptions(FilterOptions);
+            await this.RunAsync(ListMembersAsync);
+        }
+
+        private async void btnAra_Click(object sender, EventArgs e) => await SearchFromFirstPageAsync();
+
+        private async void cmbFiltre_SelectionChangeCommitted(object sender, EventArgs e) => await SearchFromFirstPageAsync();
+
+        private async void txtAra_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                await SearchFromFirstPageAsync();
+            }
+        }
+
+        private async void btnOnceki_Click(object sender, EventArgs e)
+        {
+            _pager.MovePrevious();
+            await this.RunAsync(ListMembersAsync);
+        }
+
+        private async void btnSonraki_Click(object sender, EventArgs e)
+        {
+            _pager.MoveNext();
             await this.RunAsync(ListMembersAsync);
         }
 
