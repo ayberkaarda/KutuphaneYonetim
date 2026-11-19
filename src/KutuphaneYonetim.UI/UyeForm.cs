@@ -30,7 +30,8 @@ namespace KutuphaneYonetim.UI
         private readonly Pager _pager;
         private readonly RequestSequence _listRequests = new();
         private readonly ExclusiveOperation _write = new();
-        private int? _selectedMemberId;
+        private IReadOnlyList<MemberSummary> _shownMembers = [];
+        private MemberSummary? _selectedMember;
 
         public UyeForm(IMemberService memberService)
         {
@@ -44,10 +45,21 @@ namespace KutuphaneYonetim.UI
 
         private Control[] WriteButtons => [btnEkle, btnSil, btnCezaOde];
 
-        /// <summary>Loads the current page; only the most recent of overlapping loads is shown.</summary>
+        /// <summary>
+        /// The member payment and deletion act on: the selected row, as long as it is still part of the list
+        /// on screen. Searching, filtering and paging clear the selection.
+        /// </summary>
+        private MemberSummary? Target =>
+            _selectedMember is { } member && _shownMembers.Contains(member) ? member : null;
+
+        /// <summary>
+        /// Loads the current page; only the most recent of overlapping loads is shown. The selection is
+        /// cleared as soon as a new list is requested, so it never refers to rows of an older list.
+        /// </summary>
         internal async Task ListMembersAsync()
         {
             var request = _listRequests.Next();
+            ClearSelection();
             var query = new MemberQuery(txtAra.Text, cmbFiltre.SelectedOption(MemberFilter.All), _pager.Page);
             var result = await _memberService.SearchAsync(query);
             if (!_listRequests.IsLatest(request))
@@ -55,15 +67,45 @@ namespace KutuphaneYonetim.UI
                 return;
             }
 
+            _shownMembers = result.Items;
             dataGridView1.DataSource = result.Items;
             dataGridView1.ConfigureColumns(ColumnHeaders);
             dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
+            dataGridView1.ClearSelection();
             _pager.Show(result);
         }
 
-        private async Task SearchFromFirstPageAsync()
+        private void ClearSelection()
+        {
+            if (_selectedMember is { } member
+                && txtAd.Text == member.FirstName
+                && txtSoyad.Text == member.LastName)
+            {
+                // The name boxes only showed the selected member; leave text the user typed alone.
+                txtAd.Clear();
+                txtSoyad.Clear();
+            }
+
+            _selectedMember = null;
+            dataGridView1.ClearSelection();
+        }
+
+        /// <summary>Lists the first page for the current search text and filter.</summary>
+        internal async Task SearchFromFirstPageAsync()
         {
             _pager.Reset();
+            await this.RunAsync(ListMembersAsync);
+        }
+
+        internal async Task MovePreviousPageAsync()
+        {
+            _pager.MovePrevious();
+            await this.RunAsync(ListMembersAsync);
+        }
+
+        internal async Task MoveNextPageAsync()
+        {
+            _pager.MoveNext();
             await this.RunAsync(ListMembersAsync);
         }
 
@@ -86,17 +128,9 @@ namespace KutuphaneYonetim.UI
             }
         }
 
-        private async void btnOnceki_Click(object sender, EventArgs e)
-        {
-            _pager.MovePrevious();
-            await this.RunAsync(ListMembersAsync);
-        }
+        private async void btnOnceki_Click(object sender, EventArgs e) => await MovePreviousPageAsync();
 
-        private async void btnSonraki_Click(object sender, EventArgs e)
-        {
-            _pager.MoveNext();
-            await this.RunAsync(ListMembersAsync);
-        }
+        private async void btnSonraki_Click(object sender, EventArgs e) => await MoveNextPageAsync();
 
         private async void btnEkle_Click(object sender, EventArgs e) => await AddMemberAsync();
 
@@ -132,7 +166,7 @@ namespace KutuphaneYonetim.UI
         /// <summary>Makes <paramref name="member"/> (a row of the list) the target of payment and deletion.</summary>
         internal void SelectMember(MemberSummary member)
         {
-            _selectedMemberId = member.Id;
+            _selectedMember = member;
             txtAd.Text = member.FirstName;
             txtSoyad.Text = member.LastName;
         }
@@ -144,20 +178,20 @@ namespace KutuphaneYonetim.UI
             _write,
             async () =>
             {
-                if (_selectedMemberId is not int memberId)
+                if (Target is not { } member)
                 {
                     Prompts.Warn("Lütfen silinecek bir üye seçin.");
                     return;
                 }
 
-                if (!Prompts.Confirm("Bu üyeyi silmek istediğinize emin misiniz?"))
+                if (!Prompts.Confirm(string.Format(
+                    CultureInfo.CurrentCulture, "{0} (Üye No {1}) silinsin mi?", member.FullName, member.Id)))
                 {
                     return;
                 }
 
-                await _memberService.DeleteAsync(memberId);
+                await _memberService.DeleteAsync(member.Id);
                 Prompts.Inform("Üye silindi.");
-                _selectedMemberId = null;
                 await ListMembersAsync();
 
                 txtAd.Clear();
@@ -172,18 +206,22 @@ namespace KutuphaneYonetim.UI
             _write,
             async () =>
             {
-                if (_selectedMemberId is not int memberId)
+                if (Target is not { } member)
                 {
                     Prompts.Warn("Lütfen cezası ödenecek üyeyi seçin.");
                     return;
                 }
 
-                if (!Prompts.Confirm("Seçili üyenin tüm ödenmemiş cezaları ödendi olarak işaretlensin mi?"))
+                if (!Prompts.Confirm(string.Format(
+                    CultureInfo.CurrentCulture,
+                    "{0} (Üye No {1}) adlı üyenin tüm ödenmemiş cezaları ödendi olarak işaretlensin mi?",
+                    member.FullName,
+                    member.Id)))
                 {
                     return;
                 }
 
-                var paid = await _memberService.PayFinesAsync(memberId);
+                var paid = await _memberService.PayFinesAsync(member.Id);
                 Prompts.Inform(string.Format(CultureInfo.CurrentCulture, "{0:N2} TL ceza ödendi olarak kaydedildi.", paid));
                 await ListMembersAsync();
             },
