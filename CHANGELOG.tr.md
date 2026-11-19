@@ -30,10 +30,25 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr-TR/1.1.0/) esas alınara
 - Türkçe hata mesajları ve günlük temizleme için testler.
 - CI'da sürüm işi: `v*` etiketlerinde win-x64 çıktısı yayımlanır ve zip olarak yüklenir.
 - Mimari diyagramlı İngilizce ve Türkçe README, tehdit modeli (`docs/THREAT_MODEL.md`) ve bu değişiklik günlüğü.
+- Sıcak kâğıt tonları ve cilt bordosu vurgu rengiyle açık, koyu ve sisteme uyan tema (`appsettings.json` içinde
+  `Appearance:Theme`); yüksek karşıtlık açıkken Windows'un yüksek karşıtlık renkleri olduğu gibi kullanılır.
+- Özgün logo ve uygulama simgesi (kurdeleli açık kitap), `assets/logo.svg` dosyasından üretilir.
+- `tools/Screenshots`: README ekran görüntülerini 1x ve 2x çizer ve simgeyi üretir; pencere açmaz, bellek içi
+  servisler ve uydurma veriler kullanır.
+- Her ekranı ekran dışında kurup tema karşıtlığını, varsayılan ve en küçük boyutta yerleşimi, sekme sırasını, pencere
+  içi mesajları ve onay penceresini denetleyen UI testleri; testler sırasında hiçbir pencere ya da mesaj kutusu açılmaz.
 
 ### Değişenler
 
 - Elle yazılmış doğrulama yardımcısı doğrulayıcılarla değiştirildi; mesajlar ve kırpma davranışı aynı kaldı.
+- Yenilenen arayüz: tüm ekranlar ortak bir çerçeveyi (başlık, pencere içi mesaj şeridi, kartlar ve Esc ile çalışan
+  Kapat düğmeli alt bilgi) paylaşır ve tasarımcı dosyaları yerine kodla kurulur. Ana menü ekranları kutucuklarda
+  gruplar; listeler yükleniyor ve boş durumlarını gösterir, vurguyu ekranın işlem yapacağı satırda tutar, ödenmemiş
+  cezaları, geciken ödünçleri ve ayrılan kitapları renkle işaretler. Giriş kutuları, açılır listeler ve düğmeler
+  aynı yüksekliktedir.
+- Bir ekranın sonuç, doğrulama ve hata mesajları mesaj kutusu yerine pencere içinde görünür; sorular temalı bir onay
+  penceresinde açılır. Rezervasyon iptal sorusu artık üyenin ve kitabın adını gösterir.
+- Uygulama monitör başına DPI uyumludur (PerMonitorV2).
 
 ### Düzeltilenler
 

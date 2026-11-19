@@ -1,17 +1,19 @@
 using System.Data.Common;
 using KutuphaneYonetim.Business;
 using KutuphaneYonetim.Data.Persistence;
+using KutuphaneYonetim.UI.Theming;
 using Serilog;
 
 namespace KutuphaneYonetim.UI.Infrastructure;
 
 /// <summary>
 /// Logs exceptions and turns them into short, user friendly Turkish messages. Technical details
-/// go to the log file only; the user never sees raw exception text.
+/// go to the log file only; the user never sees raw exception text. A screen with a message strip
+/// shows the message inline; anything else gets the themed message dialog.
 /// </summary>
 internal static class ErrorReporter
 {
-    private const string Caption = "Kütüphane Yönetim";
+    private const string Caption = "Bir sorun oluştu";
 
     public static void Show(Exception? exception, IWin32Window? owner = null)
     {
@@ -24,12 +26,24 @@ internal static class ErrorReporter
         {
             // Business rule messages are fixed texts without user data.
             Log.Warning("Business rule rejected an operation: {Rule}", exception.Message);
-            MessageBox.Show(owner, exception.Message, "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (owner is IStatusSurface surface)
+            {
+                surface.ShowStatus(StatusKind.Warning, exception.Message);
+                return;
+            }
+
+            Dialogs.Show(owner, exception.Message, "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         Log.Error("Operation failed: {Details}", AppLogging.DescribeForLog(exception));
-        MessageBox.Show(owner, Describe(exception), Caption, MessageBoxButtons.OK, MessageBoxIcon.Error);
+        if (owner is IStatusSurface screen)
+        {
+            screen.ShowStatus(StatusKind.Error, Describe(exception));
+            return;
+        }
+
+        Dialogs.Show(owner, Describe(exception), Caption, MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     public static string Describe(Exception exception)

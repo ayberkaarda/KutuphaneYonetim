@@ -2,6 +2,7 @@
 using KutuphaneYonetim.Data;
 using KutuphaneYonetim.Data.Persistence;
 using KutuphaneYonetim.UI.Infrastructure;
+using KutuphaneYonetim.UI.Theming;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -52,14 +53,16 @@ namespace KutuphaneYonetim.UI
             ApplicationConfiguration.Initialize();
 
             var configuration = BuildConfiguration();
+            ApplyTheme(AppConfiguration.ResolveTheme(configuration));
 
             var (policy, policyProblems) = AppConfiguration.ReadLibraryPolicy(configuration);
             if (policyProblems.Count > 0)
             {
                 Log.Warning("The Library settings are invalid: {Problems}", string.Join(" ", policyProblems));
-                MessageBox.Show(
+                Dialogs.Show(
+                    null,
                     "appsettings.json içindeki \"Library\" ayarları geçersiz:\n\n" + string.Join("\n", policyProblems),
-                    "Kütüphane Yönetim",
+                    "Ayarlar geçersiz",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
@@ -69,11 +72,12 @@ namespace KutuphaneYonetim.UI
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 Log.Warning("No database connection string is configured");
-                MessageBox.Show(
+                Dialogs.Show(
+                    null,
                     "Veritabanı bağlantı ayarı bulunamadı.\n\n"
                     + "appsettings.example.json dosyasını appsettings.json olarak kopyalayıp bağlantı bilgisini girin "
                     + "ya da KUTUPHANE_CONNECTION ortam değişkenini tanımlayın.",
-                    "Kütüphane Yönetim",
+                    "Bağlantı ayarı bulunamadı",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
@@ -96,6 +100,19 @@ namespace KutuphaneYonetim.UI
 
             var formFactory = serviceProvider.GetRequiredService<IFormFactory>();
             Application.Run(formFactory.Create<Form1>());
+        }
+
+        /// <summary>Chooses the palette; in dark mode the native parts of the controls are switched to dark too.</summary>
+        private static void ApplyTheme(ThemeMode mode)
+        {
+            var highContrast = SystemInformation.HighContrast;
+            Theme.Initialize(mode, highContrast, Theme.SystemPrefersDark());
+            if (Theme.Current.IsDark && !highContrast)
+            {
+#pragma warning disable WFO5001 // Dark mode of the native controls is marked experimental in Windows Forms.
+                Application.SetColorMode(SystemColorMode.Dark);
+#pragma warning restore WFO5001
+            }
         }
 
         private static IConfiguration BuildConfiguration() =>
@@ -131,6 +148,7 @@ namespace KutuphaneYonetim.UI
     internal static class AppConfiguration
     {
         public const string SettingsFileName = "appsettings.json";
+        public const string ThemeKey = "Appearance:Theme";
 
         /// <summary>Adds an optional JSON settings file located in <paramref name="basePath"/>.</summary>
         public static IConfigurationBuilder AddSettingsFile(this IConfigurationBuilder builder, string basePath, string fileName) =>
@@ -157,6 +175,16 @@ namespace KutuphaneYonetim.UI
             }
 
             return (policy, policy.Validate());
+        }
+
+        /// <summary><c>Appearance:Theme</c>: Light (default), Dark or System; unknown values fall back to Light.</summary>
+        public static ThemeMode ResolveTheme(IConfiguration configuration)
+        {
+            ArgumentNullException.ThrowIfNull(configuration);
+
+            return Enum.TryParse<ThemeMode>(configuration[ThemeKey], ignoreCase: true, out var mode) && Enum.IsDefined(mode)
+                ? mode
+                : ThemeMode.Light;
         }
     }
 }

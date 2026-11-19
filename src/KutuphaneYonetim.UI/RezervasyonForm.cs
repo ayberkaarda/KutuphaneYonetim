@@ -1,7 +1,8 @@
-using System.ComponentModel;
+using System.Globalization;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
+using KutuphaneYonetim.UI.Theming;
 
 namespace KutuphaneYonetim.UI
 {
@@ -9,7 +10,7 @@ namespace KutuphaneYonetim.UI
     /// Reserves books that are on loan, shows the queues (who a returned book is held for and until when)
     /// and cancels reservations.
     /// </summary>
-    public partial class RezervasyonForm : Form
+    public sealed class RezervasyonForm : AppDialog
     {
         private static readonly Dictionary<string, string> ColumnHeaders = new()
         {
@@ -27,22 +28,39 @@ namespace KutuphaneYonetim.UI
         private readonly IReservationService _reservationService;
         private readonly ExclusiveOperation _write = new();
         private readonly RequestSequence _listRequests = new();
-        private int? _selectedReservationId;
+        private ReservationDetail? _selectedReservation;
+
+        private readonly ThemedComboBox cmbKitaplar = FormLayout.Picker(nameof(cmbKitaplar), 260, "Kitap seçin");
+        private readonly ThemedComboBox cmbUyeler = FormLayout.Picker(nameof(cmbUyeler), 220, "Üye seçin");
+        private readonly ThemedGrid dataGridView1 = new() { Name = nameof(dataGridView1), AccessibleName = "Etkin rezervasyonlar" };
+        private readonly ThemedButton btnRezervasyon = FormLayout.Button(nameof(btnRezervasyon), "Sıraya Ekle", ButtonKind.Primary);
+        private readonly ThemedButton btnIptal = FormLayout.Button(nameof(btnIptal), "Seçili Rezervasyonu İptal Et", ButtonKind.Danger);
+        private readonly Label lblListeOzet = FormLayout.Hint(string.Empty);
 
         public RezervasyonForm(IBookService bookService, IMemberService memberService, IReservationService reservationService)
+            : base("Rezervasyonlar", "Ödünçteki kitaplar için sıra açın; iade edilen kitap sıradaki üyeye ayrılır.", Glyphs.Reservation, new Size(1040, 640))
         {
             _bookService = bookService;
             _memberService = memberService;
             _reservationService = reservationService;
-            InitializeComponent();
+            BuildLayout();
+
+            Load += async (_, _) => await this.RunAsync(LoadAsync);
+            btnRezervasyon.Click += async (_, _) => await ReserveAsync();
+            btnIptal.Click += async (_, _) => await CancelReservationAsync();
+            dataGridView1.CellClick += (_, e) => SelectRow(e.RowIndex);
+            dataGridView1.CurrentCellChanged += (_, _) =>
+            {
+                // Arrow keys choose a row too, but only while the user is in the list.
+                if (dataGridView1.Focused && dataGridView1.CurrentRow is { } row)
+                {
+                    SelectRow(row.Index);
+                }
+            };
+            dataGridView1.CellFormatting += FormatStatus;
         }
 
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        internal UserPrompts Prompts { get; set; } = UserPrompts.Default;
-
         private Control[] WriteButtons => [btnRezervasyon, btnIptal];
-
-        private async void RezervasyonForm_Load(object sender, EventArgs e) => await this.RunAsync(LoadAsync);
 
         /// <summary>Initial load of the pickers and the reservation list.</summary>
         internal async Task LoadAsync()
@@ -65,18 +83,32 @@ namespace KutuphaneYonetim.UI
         private async Task ListReservationsAsync()
         {
             var request = _listRequests.Next();
-            var active = await _reservationService.GetActiveAsync();
-            if (!_listRequests.IsLatest(request))
+            dataGridView1.IsLoading = true;
+            try
             {
-                return;
+                var active = await _reservationService.GetActiveAsync();
+                if (!_listRequests.IsLatest(request))
+                {
+                    return;
+                }
+
+                dataGridView1.DataSource = active;
+                dataGridView1.ConfigureColumns(ColumnHeaders);
+                dataGridView1.FormatDateTimeColumns(nameof(ReservationDetail.CreatedAt), nameof(ReservationDetail.ExpiresAt));
+                dataGridView1.FitWideColumns(160, 76, nameof(ReservationDetail.BookTitle), nameof(ReservationDetail.MemberName));
+                _selectedReservation = null;
+                dataGridView1.SelectedItem = null;
+                var ready = active.Count(r => r.Status == ReservationStatus.Ready);
+                lblListeOzet.Text = string.Format(CultureInfo.CurrentCulture, "{0} etkin rezervasyon · {1} kitap ayrıldı", active.Count, ready);
             }
-
-            dataGridView1.DataSource = active;
-            dataGridView1.ConfigureColumns(ColumnHeaders);
-            _selectedReservationId = null;
+            finally
+            {
+                if (_listRequests.IsLatest(request))
+                {
+                    dataGridView1.IsLoading = false;
+                }
+            }
         }
-
-        private async void btnRezervasyon_Click(object sender, EventArgs e) => await ReserveAsync();
 
         /// <summary>Reserves the chosen book; a second click while the first reservation is pending is ignored.</summary>
         internal Task ReserveAsync() => this.RunExclusiveAsync(
@@ -95,48 +127,90 @@ namespace KutuphaneYonetim.UI
             },
             WriteButtons);
 
-        private async void btnIptal_Click(object sender, EventArgs e) => await CancelReservationAsync();
-
         /// <summary>Cancels the selected reservation after confirmation; ignored while another write is pending.</summary>
         internal Task CancelReservationAsync() => this.RunExclusiveAsync(
             _write,
             async () =>
             {
-                if (_selectedReservationId is not int reservationId)
+                if (_selectedReservation is not { } reservation)
                 {
                     Prompts.Warn("Lütfen iptal edilecek rezervasyonu seçin.");
                     return;
                 }
 
-                if (!Prompts.Confirm("Seçili rezervasyonu iptal etmek istediğinize emin misiniz?"))
+                if (!Prompts.Confirm(string.Format(
+                    CultureInfo.CurrentCulture,
+                    "{0} adlı üyenin \"{1}\" için rezervasyonu (No {2}) iptal edilsin mi?",
+                    reservation.MemberName,
+                    reservation.BookTitle,
+                    reservation.Id)))
                 {
                     return;
                 }
 
-                await _reservationService.CancelAsync(reservationId);
+                await _reservationService.CancelAsync(reservation.Id);
                 Prompts.Inform("Rezervasyon iptal edildi.");
                 await ListReservationsAsync();
             },
             WriteButtons);
 
-        private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
+        /// <summary>Makes <paramref name="reservation"/> (a row of the list) the one to cancel.</summary>
+        internal void SelectReservation(ReservationDetail reservation)
         {
-            if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is ReservationDetail reservation)
+            _selectedReservation = reservation;
+            dataGridView1.SelectedItem = reservation;
+        }
+
+        private void SelectRow(int rowIndex)
+        {
+            if (rowIndex >= 0 && dataGridView1.Rows[rowIndex].DataBoundItem is ReservationDetail reservation)
             {
                 SelectReservation(reservation);
             }
         }
 
-        /// <summary>Makes <paramref name="reservation"/> (a row of the list) the one to cancel.</summary>
-        internal void SelectReservation(ReservationDetail reservation) => _selectedReservationId = reservation.Id;
-
-        private void dataGridView1_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        /// <summary>The status reads as Turkish text; a book held for the member stands out in the success color.</summary>
+        internal void FormatStatus(object? sender, DataGridViewCellFormattingEventArgs e)
         {
-            if (e.Value is ReservationStatus status)
+            if (e.Value is not ReservationStatus status)
             {
-                e.Value = status == ReservationStatus.Ready ? "Kitap ayrıldı" : "Sırada";
-                e.FormattingApplied = true;
+                return;
             }
+
+            e.Value = status == ReservationStatus.Ready ? "Kitap ayrıldı" : "Sırada";
+            e.FormattingApplied = true;
+            if (e.CellStyle is not null && status == ReservationStatus.Ready)
+            {
+                ThemeStyler.EmphasizeCell(e.CellStyle, Theme.Current.Success);
+            }
+        }
+
+        private void BuildLayout()
+        {
+            Name = nameof(RezervasyonForm);
+
+            var fields = FormLayout.FieldRow(
+                "reserveFields",
+                (FormLayout.Field("&Kitap", cmbKitaplar), 55),
+                (FormLayout.Field("Ü&ye", cmbUyeler), 45),
+                (FormLayout.FieldAction(btnRezervasyon), 0));
+            var hint = FormLayout.Hint("Yalnızca ödünçteki kitaplar sıraya alınır. Kitap iade edilince sıradaki üyeye belirli bir süre ayrılır.");
+            hint.Name = "reserveHint";
+            hint.Margin = new Padding(0, Spacing.M, 0, 0);
+            var reserveCard = FormLayout.Card("reserveCard", "Yeni rezervasyon", FormLayout.Stack("reserveStack", fields, hint), fill: false);
+
+            btnIptal.Margin = Padding.Empty;
+            lblListeOzet.Name = nameof(lblListeOzet);
+            lblListeOzet.Margin = new Padding(Spacing.M, 0, 0, 0);
+            var actions = FormLayout.Bar("actionBar", (btnIptal, false), (lblListeOzet, true));
+            actions.Margin = new Padding(0, Spacing.M, 0, 0);
+            dataGridView1.EmptyText = "Etkin rezervasyon yok. Ödünçteki bir kitabı yukarıdan sıraya ekleyebilirsiniz.";
+            var listCard = FormLayout.Card("listCard", "Etkin rezervasyonlar", FormLayout.Page((dataGridView1, true), (actions, false)));
+
+            Content.Controls.Add(FormLayout.Page((reserveCard, false), (listCard, true)));
+            SetFooterNote("Süresi dolan ayırmalar sıradaki üyeye geçer.");
+            SetFooterButtons(CreateCloseButton());
+            FinishLayout();
         }
     }
 }

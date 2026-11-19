@@ -6,7 +6,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>KutuphaneYonetim.UI</RootNamespace>
     <AssemblyName>KutuphaneYonetim</AssemblyName>
-    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <Product>Kütüphane Yönetim</Product>
+    <NeutralLanguage>tr-TR</NeutralLanguage>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon Condition="Exists('$(MSBuildThisFileDirectory)..\..\assets\app.ico')">..\..\assets\app.ico</ApplicationIcon>
     <UserSecretsId>kutuphane-yonetim-ui</UserSecretsId>
   </PropertyGroup>
 
@@ -16,7 +19,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Generated from assets/logo.svg by tools/Screenshots (icons command). -->
+    <EmbeddedResource Condition="Exists('$(MSBuildThisFileDirectory)..\..\assets\app.ico')" Include="..\..\assets\app.ico" LogicalName="KutuphaneYonetim.UI.app.ico" Link="app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="KutuphaneYonetim.UI.Tests" />
+    <InternalsVisibleTo Include="KutuphaneYonetim.Screenshots" />
   </ItemGroup>
 
   <ItemGroup>

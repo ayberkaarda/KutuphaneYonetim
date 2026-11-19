@@ -1,5 +1,6 @@
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Tests.Support;
+using KutuphaneYonetim.UI.Theming;
 using static KutuphaneYonetim.UI.Tests.Support.StaThread;
 
 namespace KutuphaneYonetim.UI.Tests;
@@ -66,4 +67,47 @@ public sealed class MemberSelectionTests
         Assert.Equal([2], members.Deleted);
         Assert.Contains("Ayşe Yılmaz", Assert.Single(prompts.Questions), StringComparison.Ordinal);
     });
+
+    [Fact]
+    public void FocusedRebind_DoesNotRestorePaymentOrDeleteTarget() => Run(() =>
+    {
+        var members = new ControlledMemberService();
+        var prompts = new RecordedPrompts();
+        using var form = new UyeForm(members) { Prompts = prompts.Prompts, IsListFocused = () => true };
+        CreateHandles(form);
+        var ali = new MemberSummary { Id = 1, FirstName = "Ali", LastName = "Kaya", UnpaidFine = 1.5m };
+        var ayse = new MemberSummary { Id = 2, FirstName = "Ayşe", LastName = "Yılmaz", UnpaidFine = 3m };
+        var grid = Find<ThemedGrid>(form, "dataGridView1");
+
+        // Ali is selected, a new search starts and its answer arrives while the list has the focus.
+        _ = form.ListMembersAsync();
+        members.Respond(string.Empty, ali);
+        form.SelectMember(ali);
+        Find<TextBox>(form, "txtAra").Text = "A";
+        var search = form.ListMembersAsync();
+        members.Respond("A", ayse, ali);
+        Assert.True(search.IsCompletedSuccessfully);
+
+        Assert.Equal(2, grid.Rows.Count);
+        Assert.Empty(grid.SelectedRows);
+        Assert.Equal("Üye seçilmedi", Find<Label>(form, "lblSecimAd").Text);
+        Assert.True(form.PayFinesAsync().IsCompletedSuccessfully);
+        Assert.True(form.DeleteMemberAsync().IsCompletedSuccessfully);
+        Assert.Empty(members.Paid);
+        Assert.Empty(members.Deleted);
+        Assert.Empty(prompts.Questions);
+
+        // The user picking a row in the list afterwards still works.
+        grid.CurrentCell = grid.Rows[1].Cells[0];
+        Assert.Equal("Ali Kaya", Find<Label>(form, "lblSecimAd").Text);
+    });
+
+    private static void CreateHandles(Control control)
+    {
+        _ = control.Handle;
+        foreach (Control child in control.Controls)
+        {
+            CreateHandles(child);
+        }
+    }
 }

@@ -195,13 +195,24 @@ Tehdit modeli için [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) dosyasına bak�
 
 ## 🖥️ Ekran Görüntüleri
 
-| "Kütüphane Yönetim" (Main menu) | "Kitap Ekle \| Sil" (Books) |
-| --- | --- |
-| ![Ana menü](screenshots/anasayfa.png) | ![Kitaplar](screenshots/kitap_ekle_sil.png) |
+Görüntüler `dotnet run --project tools/Screenshots` ile, pencere açılmadan ve uydurma verilerle ekran dışında
+çizilir; 2x sürümü için görsele tıklayın.
 
-| "Kitap Ödünç Al \| İade Et" (Loans) | "Üye Ekle \| Sil" (Members) |
+| "Kütüphane Yönetim" (Ana menü) | "Kitaplar" |
 | --- | --- |
-| ![Ödünç](screenshots/kitap_odunc_al.png) | ![Üyeler](screenshots/kullanici_ekle_sil.png) |
+| [![Ana menü](screenshots/ana-sayfa.png)](screenshots/ana-sayfa-2x.png) | [![Kitaplar](screenshots/kitaplar.png)](screenshots/kitaplar-2x.png) |
+
+| "Üyeler" | "Ödünç ve İade" |
+| --- | --- |
+| [![Üyeler](screenshots/uyeler.png)](screenshots/uyeler-2x.png) | [![Ödünç ve İade](screenshots/odunc-iade.png)](screenshots/odunc-iade-2x.png) |
+
+| "Rezervasyonlar" | "Raporlar" |
+| --- | --- |
+| [![Rezervasyonlar](screenshots/rezervasyonlar.png)](screenshots/rezervasyonlar-2x.png) | [![Raporlar](screenshots/raporlar.png)](screenshots/raporlar-2x.png) |
+
+| "Onay" (Onay penceresi) |
+| --- |
+| [![Onay penceresi](screenshots/onay-penceresi.png)](screenshots/onay-penceresi-2x.png) |
 
 ---
 
