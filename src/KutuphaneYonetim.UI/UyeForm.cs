@@ -1,14 +1,14 @@
-using System.ComponentModel;
 using System.Globalization;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Domain;
 using KutuphaneYonetim.Domain.Entities;
 using KutuphaneYonetim.UI.Infrastructure;
+using KutuphaneYonetim.UI.Theming;
 
 namespace KutuphaneYonetim.UI
 {
     /// <summary>Searches, lists, adds and deletes members, shows their unpaid fines and takes fine payments.</summary>
-    public partial class UyeForm : Form
+    public sealed class UyeForm : AppDialog
     {
         private static readonly Dictionary<string, string> ColumnHeaders = new()
         {
@@ -33,15 +33,58 @@ namespace KutuphaneYonetim.UI
         private IReadOnlyList<MemberSummary> _shownMembers = [];
         private MemberSummary? _selectedMember;
 
+        private readonly TextBox txtAd = new() { Name = nameof(txtAd), MaxLength = 100 };
+        private readonly TextBox txtSoyad = new() { Name = nameof(txtSoyad), MaxLength = 100 };
+        private readonly TextBox txtAra = new() { Name = nameof(txtAra), PlaceholderText = "Ad ya da soyad", AccessibleName = "Ara" };
+        private readonly ThemedComboBox cmbFiltre = FormLayout.Picker(nameof(cmbFiltre), 220);
+        private readonly ThemedGrid dataGridView1 = new() { Name = nameof(dataGridView1), AccessibleName = "Üye listesi" };
+        private readonly ThemedButton btnEkle = FormLayout.Button(nameof(btnEkle), "Üye Ekle", ButtonKind.Primary);
+        private readonly ThemedButton btnAra = FormLayout.Button(nameof(btnAra), "Ara");
+        private readonly ThemedButton btnSil = FormLayout.Button(nameof(btnSil), "Seçili Üyeyi Sil", ButtonKind.Danger);
+        private readonly ThemedButton btnCezaOde = FormLayout.Button(nameof(btnCezaOde), "Cezayı Öde");
+        private readonly ThemedButton btnOnceki = FormLayout.Button(nameof(btnOnceki), "‹ Önceki", ButtonKind.Subtle);
+        private readonly ThemedButton btnSonraki = FormLayout.Button(nameof(btnSonraki), "Sonraki ›", ButtonKind.Subtle);
+        private readonly Label lblSayfa = FormLayout.Hint(string.Empty);
+        private readonly Label lblSecimAd = FormLayout.Text("lblSecimAd");
+        private readonly Label lblSecimBilgi = FormLayout.Hint(string.Empty);
+        private readonly Label lblCezaBaslik = FormLayout.Hint("Ödenmemiş ceza");
+        private readonly Label lblCeza = FormLayout.Value("lblCeza");
+
         public UyeForm(IMemberService memberService)
+            : base("Üyeler", "Üye ekleyin ve arayın; açık ödünçleri ve ödenmemiş cezaları tek listede görün.", Glyphs.People, new Size(1040, 660), new Size(840, 580))
         {
             _memberService = memberService;
-            InitializeComponent();
+            BuildLayout();
             _pager = new Pager(btnOnceki, btnSonraki, lblSayfa);
-        }
+            ShowSelection();
 
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        internal UserPrompts Prompts { get; set; } = UserPrompts.Default;
+            Load += async (_, _) => await this.RunAsync(LoadAsync);
+            btnAra.Click += async (_, _) => await SearchFromFirstPageAsync();
+            cmbFiltre.SelectionChangeCommitted += async (_, _) => await SearchFromFirstPageAsync();
+            txtAra.KeyDown += async (_, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    await SearchFromFirstPageAsync();
+                }
+            };
+            btnOnceki.Click += async (_, _) => await MovePreviousPageAsync();
+            btnSonraki.Click += async (_, _) => await MoveNextPageAsync();
+            btnEkle.Click += async (_, _) => await AddMemberAsync();
+            btnSil.Click += async (_, _) => await DeleteMemberAsync();
+            btnCezaOde.Click += async (_, _) => await PayFinesAsync();
+            dataGridView1.CellClick += (_, e) => SelectRow(e.RowIndex);
+            dataGridView1.CurrentCellChanged += (_, _) =>
+            {
+                // Arrow keys choose a row too, but only while the user is in the list.
+                if (dataGridView1.Focused && dataGridView1.CurrentRow is { } row)
+                {
+                    SelectRow(row.Index);
+                }
+            };
+            dataGridView1.CellFormatting += HighlightFines;
+        }
 
         private Control[] WriteButtons => [btnEkle, btnSil, btnCezaOde];
 
@@ -52,6 +95,13 @@ namespace KutuphaneYonetim.UI
         private MemberSummary? Target =>
             _selectedMember is { } member && _shownMembers.Contains(member) ? member : null;
 
+        /// <summary>Fills the filter and lists the first page; runs when the window opens.</summary>
+        internal async Task LoadAsync()
+        {
+            cmbFiltre.BindOptions(FilterOptions);
+            await ListMembersAsync();
+        }
+
         /// <summary>
         /// Loads the current page; only the most recent of overlapping loads is shown. The selection is
         /// cleared as soon as a new list is requested, so it never refers to rows of an older list.
@@ -61,18 +111,33 @@ namespace KutuphaneYonetim.UI
             var request = _listRequests.Next();
             ClearSelection();
             var query = new MemberQuery(txtAra.Text, cmbFiltre.SelectedOption(MemberFilter.All), _pager.Page);
-            var result = await _memberService.SearchAsync(query);
-            if (!_listRequests.IsLatest(request))
+            dataGridView1.IsLoading = true;
+            try
             {
-                return;
-            }
+                var result = await _memberService.SearchAsync(query);
+                if (!_listRequests.IsLatest(request))
+                {
+                    return;
+                }
 
-            _shownMembers = result.Items;
-            dataGridView1.DataSource = result.Items;
-            dataGridView1.ConfigureColumns(ColumnHeaders);
-            dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
-            dataGridView1.ClearSelection();
-            _pager.Show(result);
+                _shownMembers = result.Items;
+                dataGridView1.EmptyText = string.IsNullOrWhiteSpace(query.Text) && query.Filter == MemberFilter.All
+                    ? "Henüz üye yok. Soldaki formdan ilk üyeyi ekleyin."
+                    : "Aramanıza uyan üye bulunamadı.";
+                dataGridView1.DataSource = result.Items;
+                dataGridView1.ConfigureColumns(ColumnHeaders);
+                dataGridView1.FormatMoneyColumns(nameof(MemberSummary.UnpaidFine));
+                dataGridView1.FitColumns(120, nameof(MemberSummary.FirstName), nameof(MemberSummary.LastName));
+                dataGridView1.SelectedItem = null;
+                _pager.Show(result);
+            }
+            finally
+            {
+                if (_listRequests.IsLatest(request))
+                {
+                    dataGridView1.IsLoading = false;
+                }
+            }
         }
 
         private void ClearSelection()
@@ -87,7 +152,8 @@ namespace KutuphaneYonetim.UI
             }
 
             _selectedMember = null;
-            dataGridView1.ClearSelection();
+            dataGridView1.SelectedItem = null;
+            ShowSelection();
         }
 
         /// <summary>Lists the first page for the current search text and filter.</summary>
@@ -109,31 +175,6 @@ namespace KutuphaneYonetim.UI
             await this.RunAsync(ListMembersAsync);
         }
 
-        private async void UyeForm_Load(object sender, EventArgs e)
-        {
-            cmbFiltre.BindOptions(FilterOptions);
-            await this.RunAsync(ListMembersAsync);
-        }
-
-        private async void btnAra_Click(object sender, EventArgs e) => await SearchFromFirstPageAsync();
-
-        private async void cmbFiltre_SelectionChangeCommitted(object sender, EventArgs e) => await SearchFromFirstPageAsync();
-
-        private async void txtAra_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;
-                await SearchFromFirstPageAsync();
-            }
-        }
-
-        private async void btnOnceki_Click(object sender, EventArgs e) => await MovePreviousPageAsync();
-
-        private async void btnSonraki_Click(object sender, EventArgs e) => await MoveNextPageAsync();
-
-        private async void btnEkle_Click(object sender, EventArgs e) => await AddMemberAsync();
-
         /// <summary>Adds the entered member; a second click while the first add is pending is ignored.</summary>
         internal Task AddMemberAsync() => this.RunExclusiveAsync(
             _write,
@@ -142,6 +183,7 @@ namespace KutuphaneYonetim.UI
                 if (string.IsNullOrWhiteSpace(txtAd.Text) || string.IsNullOrWhiteSpace(txtSoyad.Text))
                 {
                     Prompts.Warn("Lütfen tüm alanları doldurun.");
+                    (string.IsNullOrWhiteSpace(txtAd.Text) ? txtAd : txtSoyad).Focus();
                     return;
                 }
 
@@ -155,23 +197,15 @@ namespace KutuphaneYonetim.UI
             },
             WriteButtons);
 
-        private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.RowIndex >= 0 && dataGridView1.Rows[e.RowIndex].DataBoundItem is MemberSummary member)
-            {
-                SelectMember(member);
-            }
-        }
-
         /// <summary>Makes <paramref name="member"/> (a row of the list) the target of payment and deletion.</summary>
         internal void SelectMember(MemberSummary member)
         {
             _selectedMember = member;
+            dataGridView1.SelectedItem = member;
             txtAd.Text = member.FirstName;
             txtSoyad.Text = member.LastName;
+            ShowSelection();
         }
-
-        private async void btnSil_Click(object sender, EventArgs e) => await DeleteMemberAsync();
 
         /// <summary>Deletes the selected member after confirmation; ignored while another write is pending.</summary>
         internal Task DeleteMemberAsync() => this.RunExclusiveAsync(
@@ -199,8 +233,6 @@ namespace KutuphaneYonetim.UI
             },
             WriteButtons);
 
-        private async void btnCezaOde_Click(object sender, EventArgs e) => await PayFinesAsync();
-
         /// <summary>Takes the fine payment of the selected member; ignored while another write is pending.</summary>
         internal Task PayFinesAsync() => this.RunExclusiveAsync(
             _write,
@@ -226,5 +258,104 @@ namespace KutuphaneYonetim.UI
                 await ListMembersAsync();
             },
             WriteButtons);
+
+        private void SelectRow(int rowIndex)
+        {
+            if (rowIndex >= 0 && dataGridView1.Rows[rowIndex].DataBoundItem is MemberSummary member)
+            {
+                SelectMember(member);
+            }
+        }
+
+        /// <summary>The selected member's card: name, open loans and the unpaid fine with its severity.</summary>
+        private void ShowSelection()
+        {
+            var p = Theme.Current;
+            if (_selectedMember is not { } member)
+            {
+                lblSecimAd.Text = "Üye seçilmedi";
+                lblSecimAd.ForeColor = p.TextMuted;
+                lblSecimBilgi.Text = "Ceza ödemek ya da silmek için listeden bir üye seçin.";
+                lblCezaBaslik.Visible = false;
+                lblCeza.Visible = false;
+                return;
+            }
+
+            lblSecimAd.Text = member.FullName;
+            lblSecimAd.ForeColor = p.Text;
+            lblSecimBilgi.Text = string.Format(CultureInfo.CurrentCulture, "Üye No {0} · {1} açık ödünç", member.Id, member.ActiveLoanCount);
+            lblCezaBaslik.Visible = true;
+            lblCeza.Visible = true;
+            lblCeza.Text = member.UnpaidFine > 0
+                ? string.Format(CultureInfo.CurrentCulture, "{0:N2} TL", member.UnpaidFine)
+                : "Ödenmemiş cezası yok";
+            lblCeza.ForeColor = member.UnpaidFine > 0 ? p.Danger : p.Success;
+        }
+
+        /// <summary>Unpaid fines stand out in the danger color and a stronger weight.</summary>
+        private void HighlightFines(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.CellStyle is null
+                || dataGridView1.Columns[e.ColumnIndex].DataPropertyName != nameof(MemberSummary.UnpaidFine)
+                || e.Value is not decimal fine || fine <= 0)
+            {
+                return;
+            }
+
+            e.CellStyle.ForeColor = Theme.Current.Danger;
+            e.CellStyle.SelectionForeColor = Theme.Current.Danger;
+            e.CellStyle.Font = Theme.Fonts.BodyStrong;
+        }
+
+        private void BuildLayout()
+        {
+            Name = nameof(UyeForm);
+
+            var editor = FormLayout.Fields(
+                "memberEditor",
+                [FormLayout.Field("&Ad", FormLayout.Input(txtAd))],
+                [FormLayout.Field("&Soyad", FormLayout.Input(txtSoyad))]);
+            btnEkle.Margin = new Padding(0, Spacing.XS, 0, 0);
+            var editorCard = FormLayout.Card("editorCard", "Yeni üye", FormLayout.Stack("editorStack", editor, FormLayout.Row(btnEkle)), fill: false);
+
+            lblSecimAd.Font = Theme.Fonts.Subtitle;
+            lblSecimBilgi.Margin = new Padding(0, Spacing.XS / 2, 0, Spacing.M);
+            lblCezaBaslik.Name = nameof(lblCezaBaslik);
+            lblCezaBaslik.Margin = Padding.Empty;
+            lblCeza.Margin = Padding.Empty;
+            btnCezaOde.Margin = new Padding(Spacing.S, 0, 0, 0);
+            var fine = FormLayout.Stack("fineStack", lblCezaBaslik, lblCeza);
+            var fineBar = FormLayout.Bar("fineBar", (fine, true), (btnCezaOde, false));
+            fine.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            btnCezaOde.Anchor = AnchorStyles.Right;
+            var selection = FormLayout.Stack("selectionStack", lblSecimAd, lblSecimBilgi, fineBar);
+            var selectionCard = FormLayout.Card("selectionCard", "Seçili üye", selection, fill: false);
+            var side = FormLayout.Page((editorCard, false), (selectionCard, false));
+            side.Name = "side";
+
+            var search = FormLayout.Input(txtAra);
+            search.Margin = new Padding(0, 0, Spacing.S, 0);
+            cmbFiltre.AccessibleName = "Filtre";
+            cmbFiltre.Margin = new Padding(0, 0, Spacing.S, 0);
+            btnAra.Margin = Padding.Empty;
+            var searchBar = FormLayout.Bar("searchBar", (search, true), (cmbFiltre, false), (btnAra, false));
+            searchBar.Margin = new Padding(0, 0, 0, Spacing.M);
+
+            btnSil.Margin = Padding.Empty;
+            btnOnceki.Margin = Padding.Empty;
+            btnSonraki.Margin = Padding.Empty;
+            lblSayfa.Name = nameof(lblSayfa);
+            lblSayfa.Margin = new Padding(Spacing.S, 0, Spacing.S, 0);
+            var actions = FormLayout.Bar("actionBar", (btnSil, false), (FormLayout.Spacer(), true), (btnOnceki, false), (lblSayfa, false), (btnSonraki, false));
+            actions.Margin = new Padding(0, Spacing.M, 0, 0);
+
+            var list = FormLayout.Page((searchBar, false), (dataGridView1, true), (actions, false));
+            var listCard = FormLayout.Card("listCard", "Üye listesi", list);
+
+            Content.Controls.Add(FormLayout.Split(side, listCard));
+            SetFooterNote("Açık ödüncü ya da ödünç geçmişi olan üyeler silinemez.");
+            SetFooterButtons(CreateCloseButton());
+            FinishLayout();
+        }
     }
 }
