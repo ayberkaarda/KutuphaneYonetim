@@ -86,8 +86,8 @@ internal static class Theme
     /// <summary>The application icon (generated from assets/logo.svg).</summary>
     public static Icon AppIcon => _icon ??= LoadIcon() ?? SystemIcons.Application;
 
-    /// <summary>The largest frame of the application icon, for painting the logo.</summary>
-    public static Bitmap Logo => _logo ??= new Icon(AppIcon, new Size(256, 256)).ToBitmap();
+    /// <summary>The largest frame of the application icon (the 256 px PNG frame), for painting the logo.</summary>
+    public static Bitmap Logo => _logo ??= LoadLargestFrame() ?? new Icon(AppIcon, new Size(256, 256)).ToBitmap();
 
     /// <summary>Segoe Fluent Icons (Windows 11) or Segoe MDL2 Assets (Windows 10); null when neither exists.</summary>
     public static string? GlyphFamily
@@ -141,6 +141,49 @@ internal static class Theme
     {
         using var stream = typeof(Theme).Assembly.GetManifestResourceStream(IconResource);
         return stream is null ? null : new Icon(stream);
+    }
+
+    /// <summary>
+    /// Reads the largest frame straight from the .ico file: <see cref="Icon"/> picks a smaller bitmap
+    /// frame over the PNG-compressed 256 px one, which would make the header logo blurry.
+    /// </summary>
+    private static Bitmap? LoadLargestFrame()
+    {
+        using var stream = typeof(Theme).Assembly.GetManifestResourceStream(IconResource);
+        if (stream is null)
+        {
+            return null;
+        }
+
+        using var reader = new BinaryReader(stream);
+        reader.ReadUInt16(); // Reserved.
+        reader.ReadUInt16(); // Type.
+        var count = reader.ReadUInt16();
+        var (size, length, offset) = (0, 0, 0);
+        for (var i = 0; i < count; i++)
+        {
+            int width = reader.ReadByte();
+            reader.ReadBytes(7); // Height, palette, reserved, planes, bit depth.
+            var frameLength = reader.ReadInt32();
+            var frameOffset = reader.ReadInt32();
+            width = width == 0 ? 256 : width;
+            if (width > size)
+            {
+                (size, length, offset) = (width, frameLength, frameOffset);
+            }
+        }
+
+        stream.Position = offset;
+        var data = reader.ReadBytes(length);
+        if (data.Length < 8 || data[0] != 0x89 || data[1] != (byte)'P')
+        {
+            return null; // Not a PNG frame; the Icon class handles bitmap frames.
+        }
+
+        // GDI+ reads a bitmap lazily from its stream, so the frame is copied before the stream closes.
+        using var png = new MemoryStream(data);
+        using var decoded = new Bitmap(png);
+        return new Bitmap(decoded);
     }
 }
 
