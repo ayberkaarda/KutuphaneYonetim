@@ -10,6 +10,7 @@ namespace KutuphaneYonetim.Data.Tests;
 public sealed class RepositoryTests : IAsyncLifetime
 {
     private static readonly DateTime LoanDate = new(2026, 4, 1, 10, 0, 0, DateTimeKind.Unspecified);
+    private static readonly DateTime HoldEnd = LoanDate.AddDays(60);
     private static readonly DateTime DueDate = LoanDate.Date.AddDays(14);
 
     private readonly SqliteDatabase _db = new();
@@ -118,7 +119,7 @@ public sealed class RepositoryTests : IAsyncLifetime
     {
         var returnDate = LoanDate.AddDays(7);
 
-        Assert.True(await Loans.ReturnAsync(2, returnDate, null, Ct)); // Seeded open loan of book 3.
+        Assert.True((await Loans.ReturnAsync(2, returnDate, null, HoldEnd, Ct)).Returned); // Seeded open loan of book 3.
 
         Assert.True((await Books.GetByIdAsync(3, Ct))!.IsAvailable);
         Assert.False(await Loans.HasActiveLoanForBookAsync(3, Ct));
@@ -133,8 +134,8 @@ public sealed class RepositoryTests : IAsyncLifetime
     [Fact]
     public async Task Return_WithoutOpenLoan_ReturnsFalse()
     {
-        Assert.False(await Loans.ReturnAsync(999, LoanDate, null, Ct));
-        Assert.False(await Loans.ReturnAsync(1, LoanDate, null, Ct)); // Loan exists but is closed.
+        Assert.False((await Loans.ReturnAsync(999, LoanDate, null, HoldEnd, Ct)).Returned);
+        Assert.False((await Loans.ReturnAsync(1, LoanDate, null, HoldEnd, Ct)).Returned); // Loan exists but is closed.
         Assert.Null(await Loans.GetActiveLoanForBookAsync(1, Ct));
     }
 
@@ -173,8 +174,8 @@ public sealed class RepositoryTests : IAsyncLifetime
         Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 3, LoanDate, DueDate, Ct));
         var loanId = (await Loans.GetActiveLoanForBookAsync(4, Ct))!.Id;
 
-        Assert.True(await Loans.ReturnAsync(loanId, DueDate.AddDays(3), 7.50m, Ct));
-        Assert.True(await Loans.ReturnAsync(2, LoanDate.AddDays(30), 2.25m, Ct)); // Member 2.
+        Assert.True((await Loans.ReturnAsync(loanId, DueDate.AddDays(3), 7.50m, HoldEnd, Ct)).Returned);
+        Assert.True((await Loans.ReturnAsync(2, LoanDate.AddDays(30), 2.25m, HoldEnd, Ct)).Returned); // Member 2.
 
         Assert.Equal(7.50m, Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == loanId).FineAmount);
         Assert.Equal(7.50m, await Loans.GetUnpaidFineTotalAsync(3, Ct));
@@ -195,7 +196,7 @@ public sealed class RepositoryTests : IAsyncLifetime
     [Fact]
     public async Task Return_ZeroFine_IsStoredAsNoFine()
     {
-        Assert.True(await Loans.ReturnAsync(2, LoanDate, 0m, Ct));
+        Assert.True((await Loans.ReturnAsync(2, LoanDate, 0m, HoldEnd, Ct)).Returned);
 
         Assert.Null(Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == 2).FineAmount);
     }

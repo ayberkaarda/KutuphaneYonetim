@@ -23,6 +23,12 @@ public sealed class LibraryPolicy
     /// </summary>
     public decimal MaxUnpaidFine { get; set; }
 
+    /// <summary>
+    /// How long a returned book is held for the member at the front of its reservation queue before the
+    /// reservation expires and the next member is served.
+    /// </summary>
+    public int ReservationHoldDays { get; set; } = 3;
+
     /// <summary>Returns the (Turkish) problems with the configured values; empty when the policy is valid.</summary>
     public IReadOnlyList<string> Validate() =>
         new LibraryPolicyValidator().Validate(this).Errors.Select(e => e.ErrorMessage).ToList();

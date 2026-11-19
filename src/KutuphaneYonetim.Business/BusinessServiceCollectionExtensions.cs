@@ -32,6 +32,7 @@ public static class BusinessServiceCollectionExtensions
         services.AddSingleton<IBookService, BookService>();
         services.AddSingleton<IMemberService, MemberService>();
         services.AddSingleton<ILoanService, LoanService>();
+        services.AddSingleton<IReservationService, ReservationService>();
         return services;
     }
 }

@@ -16,11 +16,14 @@ public enum BookAvailability
 {
     All,
 
-    /// <summary>On the shelf and free to lend.</summary>
+    /// <summary>On the shelf and free to lend (not held for a reservation).</summary>
     Available,
 
     /// <summary>Lent to a member.</summary>
     OnLoan,
+
+    /// <summary>On the shelf but held for the member at the front of its reservation queue.</summary>
+    Reserved,
 }
 
 /// <summary>Text search (title, author, ISBN) and availability filter for books.</summary>

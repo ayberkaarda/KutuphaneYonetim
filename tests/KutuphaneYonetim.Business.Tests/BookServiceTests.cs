@@ -12,11 +12,12 @@ public sealed class BookServiceTests
     // Strict mocks: any repository call that a test did not expect fails the test.
     private readonly Mock<IBookRepository> _books = new(MockBehavior.Strict);
     private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
+    private readonly Mock<IReservationRepository> _reservations = new(MockBehavior.Strict);
     private readonly BookService _service;
 
     public BookServiceTests()
     {
-        _service = new BookService(_books.Object, _loans.Object, new BookInputValidator());
+        _service = new BookService(_books.Object, _loans.Object, _reservations.Object, new BookInputValidator());
     }
 
     [Fact]
@@ -119,11 +120,27 @@ public sealed class BookServiceTests
     }
 
     [Fact]
+    public async Task DeleteAsync_BookWithReservationHistory_IsRejected()
+    {
+        _books.Setup(b => b.GetByIdAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = 7 });
+        _loans.Setup(l => l.HasActiveLoanForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _loans.Setup(l => l.HasAnyLoanForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _reservations.Setup(r => r.HasAnyForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.DeleteAsync(7, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Bu kitabın rezervasyon kaydı bulunduğu için silinemez.", error.Message);
+        _books.Verify(b => b.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DeleteAsync_BookWithoutLoans_IsDeleted()
     {
         _books.Setup(b => b.GetByIdAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = 7 });
         _loans.Setup(l => l.HasActiveLoanForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(false);
         _loans.Setup(l => l.HasAnyLoanForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _reservations.Setup(r => r.HasAnyForBookAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(false);
         _books.Setup(b => b.DeleteAsync(7, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         await _service.DeleteAsync(7, TestContext.Current.CancellationToken);

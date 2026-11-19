@@ -9,6 +9,7 @@ namespace KutuphaneYonetim.Data.Tests;
 public sealed class SearchTests : IAsyncLifetime
 {
     private static readonly DateTime LoanDate = new(2026, 4, 1, 10, 0, 0, DateTimeKind.Unspecified);
+    private static readonly DateTime HoldEnd = LoanDate.AddDays(60);
 
     private readonly SqliteDatabase _db = new();
 
@@ -124,7 +125,7 @@ public sealed class SearchTests : IAsyncLifetime
     {
         var loans = _db.Get<ILoanRepository>();
         Assert.Equal(LendOutcome.Lent, await loans.LendAsync(4, 1, LoanDate, LoanDate.Date, Ct));
-        Assert.True(await loans.ReturnAsync((await loans.GetActiveLoanForBookAsync(4, Ct))!.Id, LoanDate.AddDays(2), 5m, Ct));
+        Assert.True((await loans.ReturnAsync((await loans.GetActiveLoanForBookAsync(4, Ct))!.Id, LoanDate.AddDays(2), 5m, HoldEnd, Ct)).Returned);
 
         await ExpectMembersAsync(new MemberQuery(Filter: MemberFilter.WithActiveLoan), 2); // Seeded open loan.
         await ExpectMembersAsync(new MemberQuery(Filter: MemberFilter.WithUnpaidFine), 1);

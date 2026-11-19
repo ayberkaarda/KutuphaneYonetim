@@ -5,8 +5,11 @@ using KutuphaneYonetim.Domain.Repositories;
 
 namespace KutuphaneYonetim.Business.Services;
 
-/// <summary>Outcome of a return: how late the book was and the fine recorded for it.</summary>
-public sealed record ReturnReceipt(int OverdueDays, decimal Fine);
+/// <summary>
+/// Outcome of a return: how late the book was and the fine recorded for it, and, when members were
+/// waiting for the book, who it is now held for and until when.
+/// </summary>
+public sealed record ReturnReceipt(int OverdueDays, decimal Fine, string? HeldForMemberName = null, DateTime? HeldUntil = null);
 
 public interface ILoanService
 {
@@ -27,6 +30,7 @@ internal sealed class LoanService(
     IBookRepository books,
     IMemberRepository members,
     ILoanRepository loans,
+    IReservationRepository reservations,
     IValidator<LoanInput> validator,
     LibraryPolicy policy,
     TimeProvider timeProvider) : ILoanService
@@ -67,6 +71,9 @@ internal sealed class LoanService(
                 "Bu üyenin ödenmemiş cezası izin verilen sınırın üzerinde. Ceza ödenmeden yeni kitap ödünç verilemez.");
         }
 
+        // A hold that was not picked up in time must not block the book any longer.
+        await reservations.ExpireHoldsAsync(now, HoldEnd(now), cancellationToken).ConfigureAwait(false);
+
         // The repository re-checks inside a transaction, so two members can never hold the same book.
         var outcome = await loans
             .LendAsync(bookId, memberId, now, due, cancellationToken)
@@ -78,6 +85,9 @@ internal sealed class LoanService(
                 return;
             case LendOutcome.BookNotFound:
                 throw new BusinessRuleException(Messages.BookNotFound);
+            case LendOutcome.HeldForAnotherMember:
+                throw new BusinessRuleException(
+                    "Bu kitap rezervasyon sırasındaki başka bir üye için ayrıldı. Yalnızca o üyeye ödünç verilebilir.");
             default:
                 throw new BusinessRuleException("Bu kitap şu anda başka bir üyede. Aynı kitap iki üyeye ödünç verilemez.");
         }
@@ -92,16 +102,25 @@ internal sealed class LoanService(
         var overdueDays = FineCalculator.OverdueDays(loan.DueDate, now);
         var fine = FineCalculator.Fine(overdueDays, policy.DailyFine);
 
-        var returned = await loans
-            .ReturnAsync(loan.Id, now, fine > 0 ? fine : null, cancellationToken)
+        var holdEnd = HoldEnd(now);
+        var outcome = await loans
+            .ReturnAsync(loan.Id, now, fine > 0 ? fine : null, holdEnd, cancellationToken)
             .ConfigureAwait(false);
-        if (!returned)
+        if (!outcome.Returned)
         {
             throw new BusinessRuleException(NoOpenLoan);
         }
 
-        return new ReturnReceipt(overdueDays, fine);
+        if (outcome.HeldForMemberId is not int heldFor)
+        {
+            return new ReturnReceipt(overdueDays, fine);
+        }
+
+        var member = await members.GetByIdAsync(heldFor, cancellationToken).ConfigureAwait(false);
+        return new ReturnReceipt(overdueDays, fine, member?.FullName ?? string.Empty, holdEnd);
     }
+
+    private DateTime HoldEnd(DateTime from) => from.AddDays(policy.ReservationHoldDays);
 
     private DateTime Now() => timeProvider.GetLocalNow().DateTime;
 }

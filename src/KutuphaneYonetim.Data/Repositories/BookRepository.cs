@@ -48,8 +48,11 @@ internal sealed class BookRepository(IDbContextFactory<LibraryDbContext> context
 
         books = query.Availability switch
         {
-            BookAvailability.Available => books.Where(b => b.IsAvailable),
+            BookAvailability.Available => books.Where(b => b.IsAvailable
+                && !db.Reservations.Any(r => r.BookId == b.Id && r.Status == ReservationStatus.Ready)),
             BookAvailability.OnLoan => books.Where(b => !b.IsAvailable),
+            BookAvailability.Reserved => books.Where(b => b.IsAvailable
+                && db.Reservations.Any(r => r.BookId == b.Id && r.Status == ReservationStatus.Ready)),
             _ => books,
         };
 

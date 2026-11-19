@@ -27,6 +27,7 @@ public interface IMemberService
 internal sealed class MemberService(
     IMemberRepository members,
     ILoanRepository loans,
+    IReservationRepository reservations,
     IValidator<MemberInput> validator,
     TimeProvider timeProvider) : IMemberService
 {
@@ -67,6 +68,11 @@ internal sealed class MemberService(
         if (await loans.HasAnyLoanForMemberAsync(memberId, cancellationToken).ConfigureAwait(false))
         {
             throw new BusinessRuleException("Bu üyenin ödünç geçmişi bulunduğu için silinemez.");
+        }
+
+        if (await reservations.HasAnyForMemberAsync(memberId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new BusinessRuleException("Bu üyenin rezervasyon kaydı bulunduğu için silinemez.");
         }
 
         await members.DeleteAsync(memberId, cancellationToken).ConfigureAwait(false);

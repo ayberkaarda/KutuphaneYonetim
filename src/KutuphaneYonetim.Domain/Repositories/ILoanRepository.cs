@@ -8,6 +8,17 @@ public enum LendOutcome
     Lent,
     BookNotFound,
     BookOnLoan,
+
+    /// <summary>The book is on the shelf but held for another member's reservation.</summary>
+    HeldForAnotherMember,
+}
+
+/// <summary>Result of <see cref="ILoanRepository.ReturnAsync"/>.</summary>
+/// <param name="Returned">False when the loan was not open (any more).</param>
+/// <param name="HeldForMemberId">The member the book is now held for, when someone was waiting for it.</param>
+public sealed record ReturnOutcome(bool Returned, int? HeldForMemberId = null)
+{
+    public static ReturnOutcome NotOpen { get; } = new(false);
 }
 
 public interface ILoanRepository
@@ -27,17 +38,23 @@ public interface ILoanRepository
 
     /// <summary>
     /// Records a new loan and marks the book as unavailable in a single transaction.
-    /// The book is re-checked inside the transaction, so it can never have two open loans.
+    /// The book is re-checked inside the transaction, so it can never have two open loans, and a book held
+    /// for a reservation is only lent to that member (whose reservation is then fulfilled).
     /// </summary>
     Task<LendOutcome> LendAsync(
         int bookId, int memberId, DateTime loanDate, DateTime dueDate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Closes the loan if it is still open, stores the fine (null for none) and marks the book available,
-    /// in a single transaction. Returns false when the loan is not open (any more).
+    /// in a single transaction. When members are waiting for the book, it is held for the first of them
+    /// until <paramref name="holdExpiresAt"/>.
     /// </summary>
-    Task<bool> ReturnAsync(
-        int loanId, DateTime returnDate, decimal? fineAmount, CancellationToken cancellationToken = default);
+    Task<ReturnOutcome> ReturnAsync(
+        int loanId,
+        DateTime returnDate,
+        decimal? fineAmount,
+        DateTime holdExpiresAt,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Sum of the member's fines that are not paid yet (0 when there are none).</summary>
     Task<decimal> GetUnpaidFineTotalAsync(int memberId, CancellationToken cancellationToken = default);

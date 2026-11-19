@@ -5,7 +5,7 @@ namespace KutuphaneYonetim.Data.Persistence;
 
 /// <summary>
 /// EF Core context for the library database. Table and column names follow the original
-/// schema (Kitaplar, Uyeler, OduncIslemleri).
+/// schema (Kitaplar, Uyeler, OduncIslemleri) and its Turkish naming (Rezervasyonlar).
 /// </summary>
 public sealed class LibraryDbContext(DbContextOptions<LibraryDbContext> options) : DbContext(options)
 {
@@ -19,6 +19,8 @@ public sealed class LibraryDbContext(DbContextOptions<LibraryDbContext> options)
     public DbSet<Member> Members => Set<Member>();
 
     public DbSet<Loan> Loans => Set<Loan>();
+
+    public DbSet<Reservation> Reservations => Set<Reservation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

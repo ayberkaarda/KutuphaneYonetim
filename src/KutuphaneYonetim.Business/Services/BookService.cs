@@ -13,8 +13,9 @@ public interface IBookService
     Task<IReadOnlyList<Book>> GetAvailableAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Searches title, author and ISBN (case-insensitive on SQL Server) with an availability filter, one
-    /// page at a time. The page is moved back to the last page when it lies beyond the result.
+    /// Searches title, author and ISBN (case-insensitive on SQL Server) with an availability filter
+    /// (available, on loan, held for a reservation), one page at a time. The page is moved back to the
+    /// last page when it lies beyond the result.
     /// </summary>
     Task<PagedResult<Book>> SearchAsync(BookQuery query, CancellationToken cancellationToken = default);
 
@@ -26,6 +27,7 @@ public interface IBookService
 internal sealed class BookService(
     IBookRepository books,
     ILoanRepository loans,
+    IReservationRepository reservations,
     IValidator<BookInput> validator) : IBookService
 {
     public Task<IReadOnlyList<Book>> GetAllAsync(CancellationToken cancellationToken = default) =>
@@ -68,6 +70,11 @@ internal sealed class BookService(
         if (await loans.HasAnyLoanForBookAsync(bookId, cancellationToken).ConfigureAwait(false))
         {
             throw new BusinessRuleException("Bu kitabın ödünç geçmişi bulunduğu için silinemez.");
+        }
+
+        if (await reservations.HasAnyForBookAsync(bookId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new BusinessRuleException("Bu kitabın rezervasyon kaydı bulunduğu için silinemez.");
         }
 
         await books.DeleteAsync(bookId, cancellationToken).ConfigureAwait(false);

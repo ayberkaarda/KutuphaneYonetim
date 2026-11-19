@@ -14,14 +14,17 @@ public sealed class LoanServiceTests
     private readonly Mock<IBookRepository> _books = new(MockBehavior.Strict);
     private readonly Mock<IMemberRepository> _members = new(MockBehavior.Strict);
     private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
-    private readonly LibraryPolicy _policy = new() { LoanPeriodDays = 14, DailyFine = 2.50m, MaxUnpaidFine = 0m };
+    private readonly Mock<IReservationRepository> _reservations = new(MockBehavior.Strict);
+    private readonly LibraryPolicy _policy = new() { LoanPeriodDays = 14, DailyFine = 2.50m, MaxUnpaidFine = 0m, ReservationHoldDays = 3 };
     private readonly LoanService _service;
 
     public LoanServiceTests()
     {
         _service = new LoanService(
-            _books.Object, _members.Object, _loans.Object, new LoanInputValidator(), _policy, new FixedTimeProvider(Now));
+            _books.Object, _members.Object, _loans.Object, _reservations.Object, new LoanInputValidator(), _policy, new FixedTimeProvider(Now));
     }
+
+    private static readonly DateTime HoldEnd = Now.UtcDateTime.AddDays(3);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -30,6 +33,7 @@ public sealed class LoanServiceTests
         _books.Setup(b => b.GetByIdAsync(bookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = bookId });
         _members.Setup(m => m.GetByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = memberId });
         _loans.Setup(l => l.GetUnpaidFineTotalAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(unpaidFine);
+        _reservations.Setup(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(0);
     }
 
     private void GivenLendSucceeds(int bookId, int memberId, DateTime dueDate) =>
@@ -225,13 +229,13 @@ public sealed class LoanServiceTests
     {
         var fine = (decimal?)expectedFine;
         GivenOpenLoan(2, Today.AddDays(-daysLate));
-        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, fine, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, fine, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(new ReturnOutcome(true));
 
         var receipt = await _service.ReturnAsync(2, Ct);
 
         Assert.Equal(expectedDays, receipt.OverdueDays);
         Assert.Equal(fine ?? 0m, receipt.Fine);
-        _loans.Verify(l => l.ReturnAsync(10, Now.UtcDateTime, fine, It.IsAny<CancellationToken>()), Times.Once);
+        _loans.Verify(l => l.ReturnAsync(10, Now.UtcDateTime, fine, HoldEnd, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -239,7 +243,7 @@ public sealed class LoanServiceTests
     {
         _policy.DailyFine = 1.75m;
         GivenOpenLoan(2, Today.AddDays(-3));
-        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, 5.25m, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, 5.25m, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(new ReturnOutcome(true));
 
         var receipt = await _service.ReturnAsync(2, Ct);
 
@@ -251,7 +255,7 @@ public sealed class LoanServiceTests
     {
         _policy.DailyFine = 0m;
         GivenOpenLoan(2, Today.AddDays(-30));
-        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, null, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, null, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(new ReturnOutcome(true));
 
         var receipt = await _service.ReturnAsync(2, Ct);
 
@@ -263,7 +267,7 @@ public sealed class LoanServiceTests
     public async Task ReturnAsync_LegacyLoanWithoutDueDate_HasNoFine()
     {
         GivenOpenLoan(2, dueDate: null);
-        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, null, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, null, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(new ReturnOutcome(true));
 
         var receipt = await _service.ReturnAsync(2, Ct);
 
@@ -284,11 +288,54 @@ public sealed class LoanServiceTests
     public async Task ReturnAsync_ReturnedConcurrently_IsRejected()
     {
         GivenOpenLoan(2, Today);
-        _loans.Setup(l => l.ReturnAsync(10, It.IsAny<DateTime>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _loans.Setup(l => l.ReturnAsync(10, It.IsAny<DateTime>(), It.IsAny<decimal?>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ReturnOutcome.NotOpen);
 
         var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.ReturnAsync(2, Ct));
 
         Assert.Equal("Bu kitap için açık bir ödünç kaydı bulunamadı.", error.Message);
+    }
+
+    [Fact]
+    public async Task LendAsync_BookHeldForAnotherMember_IsRejected()
+    {
+        GivenBookAndMember(2, 4);
+        _loans.Setup(l => l.LendAsync(2, 4, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(LendOutcome.HeldForAnotherMember);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => _service.LendAsync(2, 4, cancellationToken: Ct));
+
+        Assert.StartsWith("Bu kitap rezervasyon sırasındaki başka bir üye için ayrıldı.", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LendAsync_ExpiresStaleHoldsBeforeLending()
+    {
+        var sequence = new MockSequence();
+        GivenBookAndMember(2, 4);
+        _reservations.InSequence(sequence)
+            .Setup(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        _loans.InSequence(sequence)
+            .Setup(l => l.LendAsync(2, 4, Now.UtcDateTime, Today.AddDays(14), It.IsAny<CancellationToken>())).ReturnsAsync(LendOutcome.Lent);
+
+        await _service.LendAsync(2, 4, cancellationToken: Ct);
+
+        _reservations.Verify(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReturnAsync_WithWaitingMember_ReportsWhoTheBookIsHeldForAndUntilWhen()
+    {
+        _policy.ReservationHoldDays = 5;
+        GivenOpenLoan(2, Today);
+        _loans.Setup(l => l.ReturnAsync(10, Now.UtcDateTime, null, Now.UtcDateTime.AddDays(5), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReturnOutcome(true, 7));
+        _members.Setup(m => m.GetByIdAsync(7, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Member { Id = 7, FirstName = "Ayşe", LastName = "Kaya" });
+
+        var receipt = await _service.ReturnAsync(2, Ct);
+
+        Assert.Equal(new ReturnReceipt(0, 0m, "Ayşe Kaya", Now.UtcDateTime.AddDays(5)), receipt);
     }
 
     [Fact]

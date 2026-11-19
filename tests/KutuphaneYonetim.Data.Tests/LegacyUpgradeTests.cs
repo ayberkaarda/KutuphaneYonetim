@@ -122,10 +122,29 @@ public sealed class LegacyUpgradeTests
                     ct));
                 Assert.Contains("UX_OduncIslemleri_active_kitap", duplicate.Message, StringComparison.Ordinal);
 
+                // Reservations work on the legacy loan: the new member queues for book 9 (lent to member 7).
+                var reservations = provider.GetRequiredService<IReservationService>();
+                await reservations.ReserveAsync(9, member.Id, ct);
+                await Assert.ThrowsAsync<BusinessRuleException>(() => reservations.ReserveAsync(9, member.Id, ct));
+
                 await loans.ReturnAsync(book.Id, ct);
-                Assert.Equal(new ReturnReceipt(0, 0m), await loans.ReturnAsync(9, ct)); // Legacy open loan: no fine.
+                var legacyReturn = await loans.ReturnAsync(9, ct); // Legacy open loan: no fine.
+                Assert.Equal((0, 0m, "Yeni Uye"), (legacyReturn.OverdueDays, legacyReturn.Fine, legacyReturn.HeldForMemberName));
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, 5, cancellationToken: ct)); // Held.
                 await loans.LendAsync(9, member.Id, cancellationToken: ct);
                 Assert.Equal(9, Assert.Single(await loans.GetAllAsync(ct), l => l.ReturnDate is null).BookId);
+                Assert.Empty(await reservations.GetActiveAsync(ct));
+
+                // The database refuses a second active reservation of the same member for the same book.
+                await ExecuteAsync(
+                    connectionString,
+                    $"INSERT dbo.Rezervasyonlar (kitap_id, uye_id, olusturma_tarihi, durum) VALUES ({book.Id}, 5, GETDATE(), 0)",
+                    ct);
+                var duplicateReservation = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsync(
+                    connectionString,
+                    $"INSERT dbo.Rezervasyonlar (kitap_id, uye_id, olusturma_tarihi, durum) VALUES ({book.Id}, 5, GETDATE(), 0)",
+                    ct));
+                Assert.Contains("UX_Rezervasyonlar_active_kitap_uye", duplicateReservation.Message, StringComparison.Ordinal);
             }
         }
         finally

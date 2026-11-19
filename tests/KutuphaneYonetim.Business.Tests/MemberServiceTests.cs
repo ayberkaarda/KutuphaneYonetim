@@ -11,13 +11,14 @@ public sealed class MemberServiceTests
 {
     private readonly Mock<IMemberRepository> _members = new(MockBehavior.Strict);
     private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
+    private readonly Mock<IReservationRepository> _reservations = new(MockBehavior.Strict);
     private static readonly DateTimeOffset Now = new(2026, 3, 14, 9, 30, 0, TimeSpan.Zero);
 
     private readonly MemberService _service;
 
     public MemberServiceTests()
     {
-        _service = new MemberService(_members.Object, _loans.Object, new MemberInputValidator(), new FixedTimeProvider(Now));
+        _service = new MemberService(_members.Object, _loans.Object, _reservations.Object, new MemberInputValidator(), new FixedTimeProvider(Now));
     }
 
     [Fact]
@@ -101,11 +102,27 @@ public sealed class MemberServiceTests
     }
 
     [Fact]
+    public async Task DeleteAsync_MemberWithReservationHistory_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.HasActiveLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _loans.Setup(l => l.HasAnyLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _reservations.Setup(r => r.HasAnyForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.DeleteAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Bu üyenin rezervasyon kaydı bulunduğu için silinemez.", error.Message);
+        _members.Verify(m => m.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DeleteAsync_MemberWithoutLoans_IsDeleted()
     {
         _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
         _loans.Setup(l => l.HasActiveLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
         _loans.Setup(l => l.HasAnyLoanForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _reservations.Setup(r => r.HasAnyForMemberAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(false);
         _members.Setup(m => m.DeleteAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         await _service.DeleteAsync(3, TestContext.Current.CancellationToken);

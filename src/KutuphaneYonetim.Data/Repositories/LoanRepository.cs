@@ -90,6 +90,26 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
             return LendOutcome.BookOnLoan;
         }
 
+        // A book held for a reservation goes to that member only; their reservation is fulfilled.
+        var hold = await db.Reservations
+            .SingleOrDefaultAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Ready, cancellationToken)
+            .ConfigureAwait(false);
+        if (hold is not null && hold.MemberId != memberId)
+        {
+            return LendOutcome.HeldForAnotherMember;
+        }
+
+        var ownReservations = await db.Reservations
+            .Where(ReservationQueue.Active)
+            .Where(r => r.BookId == bookId && r.MemberId == memberId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var reservation in ownReservations)
+        {
+            reservation.Status = ReservationStatus.Fulfilled;
+            reservation.ClosedAt = loanDate;
+        }
+
         db.Loans.Add(new Loan { BookId = bookId, MemberId = memberId, LoanDate = loanDate, DueDate = dueDate.Date });
         book.IsAvailable = false;
 
@@ -101,7 +121,7 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         }
         catch (DbUpdateException)
         {
-            // Another session lent the same book concurrently: the book row version changed
+            // Another session lent the same book concurrently: the book or reservation row version changed
             // (DbUpdateConcurrencyException) or the filtered unique index rejected the insert.
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             if (await HasActiveLoanForBookAsync(bookId, cancellationToken).ConfigureAwait(false))
@@ -113,8 +133,12 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         }
     }
 
-    public async Task<bool> ReturnAsync(
-        int loanId, DateTime returnDate, decimal? fineAmount, CancellationToken cancellationToken = default)
+    public async Task<ReturnOutcome> ReturnAsync(
+        int loanId,
+        DateTime returnDate,
+        decimal? fineAmount,
+        DateTime holdExpiresAt,
+        CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -124,7 +148,7 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
             .ConfigureAwait(false);
         if (loan is null)
         {
-            return false;
+            return ReturnOutcome.NotOpen;
         }
 
         loan.ReturnDate = returnDate;
@@ -144,11 +168,15 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         {
             // The same loan was returned by another session in the meantime.
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return false;
+            return ReturnOutcome.NotOpen;
         }
 
+        var served = await ReservationQueue
+            .ServeNextIfOnShelfAsync(db, loan.BookId, returnDate, holdExpiresAt, cancellationToken)
+            .ConfigureAwait(false);
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return true;
+        return new ReturnOutcome(true, served?.MemberId);
     }
 
     public async Task<decimal> GetUnpaidFineTotalAsync(int memberId, CancellationToken cancellationToken = default)

@@ -105,5 +105,8 @@ internal sealed class LibraryPolicyValidator : AbstractValidator<LibraryPolicy>
         RuleFor(p => p.MaxUnpaidFine)
             .GreaterThanOrEqualTo(0m)
             .WithMessage("MaxUnpaidFine negatif olamaz.");
+        RuleFor(p => p.ReservationHoldDays)
+            .InclusiveBetween(1, 30)
+            .WithMessage("ReservationHoldDays 1 ile 30 arasında olmalıdır.");
     }
 }

@@ -79,9 +79,17 @@ public sealed class ValidatorTests
     [InlineData(366, 1, 0, "LoanPeriodDays 1 ile 365 arasında olmalıdır.")]
     [InlineData(14, -0.01, 0, "DailyFine 0 ile 10000 arasında olmalıdır.")]
     [InlineData(14, 1, -1, "MaxUnpaidFine negatif olamaz.")]
-    public void LibraryPolicy_InvalidValues_AreReported(int period, double daily, double maxUnpaid, string expected)
+    [InlineData(14, 1, 0, "ReservationHoldDays 1 ile 30 arasında olmalıdır.", 0)]
+    [InlineData(14, 1, 0, "ReservationHoldDays 1 ile 30 arasında olmalıdır.", 31)]
+    public void LibraryPolicy_InvalidValues_AreReported(int period, double daily, double maxUnpaid, string expected, int holdDays = 3)
     {
-        var policy = new LibraryPolicy { LoanPeriodDays = period, DailyFine = (decimal)daily, MaxUnpaidFine = (decimal)maxUnpaid };
+        var policy = new LibraryPolicy
+        {
+            LoanPeriodDays = period,
+            DailyFine = (decimal)daily,
+            MaxUnpaidFine = (decimal)maxUnpaid,
+            ReservationHoldDays = holdDays,
+        };
 
         Assert.Equal(expected, Assert.Single(policy.Validate()));
     }
@@ -101,6 +109,7 @@ public sealed class ValidatorTests
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IBookRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IMemberRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.ILoanRepository>().Object);
+        services.AddSingleton(new Moq.Mock<Domain.Repositories.IReservationRepository>().Object);
         services.AddBusinessServices();
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
@@ -108,6 +117,7 @@ public sealed class ValidatorTests
         Assert.NotNull(provider.GetRequiredService<IBookService>());
         Assert.NotNull(provider.GetRequiredService<IMemberService>());
         Assert.NotNull(provider.GetRequiredService<ILoanService>());
+        Assert.NotNull(provider.GetRequiredService<IReservationService>());
     }
 
     [Theory]
