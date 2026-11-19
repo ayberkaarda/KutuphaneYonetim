@@ -41,7 +41,7 @@ internal static class Sizes
     public const int TileHeight = 104;
 
     /// <summary>Width of the editor card on the left of the catalog screens.</summary>
-    public const int EditorWidth = 304;
+    public const int EditorWidth = 280;
 
     public const int FocusRing = 2;
 }

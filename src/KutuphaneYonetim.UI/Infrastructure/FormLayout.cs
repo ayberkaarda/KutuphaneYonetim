@@ -9,6 +9,9 @@ namespace KutuphaneYonetim.UI.Infrastructure;
 /// </summary>
 internal static class FormLayout
 {
+    /// <summary>Half the difference between the shared control height and a native date or number box.</summary>
+    private const int NativeInputInset = 4;
+
     /// <summary>Header of a screen: glyph badge (or the logo), title and one line of description.</summary>
     public static TableLayoutPanel Header(string title, string subtitle, string glyph, Image? logo = null)
     {
@@ -175,7 +178,11 @@ internal static class FormLayout
                 : AnchorStyles.Left | AnchorStyles.Top;
         }
 
-        input.Margin = new Padding(0, Spacing.XS, 0, 0);
+        // Date pickers and number boxes keep their native height (shorter than the shared control
+        // height); a little extra top margin centers them on the row of drop-down lists and buttons.
+        input.Margin = input is DateTimePicker or NumericUpDown
+            ? new Padding(0, Spacing.XS + NativeInputInset, 0, NativeInputInset)
+            : new Padding(0, Spacing.XS, 0, 0);
         var accessible = input is TextField framed ? framed.Input : input;
         accessible.AccessibleName ??= caption.Replace("&", string.Empty, StringComparison.Ordinal);
         field.Controls.Add(input);
@@ -187,6 +194,62 @@ internal static class FormLayout
         }
 
         return field;
+    }
+
+    /// <summary>
+    /// A button placed like a field without a caption, so it lines up with the inputs of a row of
+    /// labelled fields (the empty caption takes the same height as theirs).
+    /// </summary>
+    public static TableLayoutPanel FieldAction(Control button)
+    {
+        ArgumentNullException.ThrowIfNull(button);
+
+        var field = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, Spacing.M),
+        };
+        var caption = Caption(" ");
+        caption.UseMnemonic = false;
+        caption.AccessibleRole = AccessibleRole.None;
+        field.Controls.Add(caption);
+        button.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+        button.Margin = new Padding(0, Spacing.XS, 0, 0);
+        field.Controls.Add(button);
+        return field;
+    }
+
+    /// <summary>
+    /// Fields in one row with explicit column widths: a percentage shares the free width, zero sizes
+    /// the column to its field.
+    /// </summary>
+    public static TableLayoutPanel FieldRow(string name, params (Control Field, float Percent)[] columns)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+
+        var row = new TableLayoutPanel
+        {
+            Name = name,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = columns.Length,
+            RowCount = 1,
+            Dock = DockStyle.Top,
+            Margin = Padding.Empty,
+        };
+        row.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < columns.Length; i++)
+        {
+            var (field, percent) = columns[i];
+            field.Margin = new Padding(field.Margin.Left, field.Margin.Top, field.Margin.Right, 0); // The card's padding closes the row.
+            row.ColumnStyles.Add(percent > 0 ? new ColumnStyle(SizeType.Percent, percent) : new ColumnStyle(SizeType.AutoSize));
+            row.Controls.Add(field, i, 0);
+        }
+
+        return row;
     }
 
     /// <summary>
@@ -335,7 +398,11 @@ internal static class FormLayout
         {
             var (control, fill) = items[i];
             bar.ColumnStyles.Add(fill ? new ColumnStyle(SizeType.Percent, 100) : new ColumnStyle(SizeType.AutoSize));
-            control.Anchor = fill ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left;
+
+            // Inputs and buttons share one height and line up at the top (a drop-down list only takes
+            // its final height once its window exists); text is centered on the row.
+            var vertical = control is Label ? AnchorStyles.None : AnchorStyles.Top;
+            control.Anchor = (fill ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left) | vertical;
             bar.Controls.Add(control, i, 0);
         }
 

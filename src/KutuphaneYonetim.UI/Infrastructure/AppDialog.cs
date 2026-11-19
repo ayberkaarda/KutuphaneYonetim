@@ -17,7 +17,12 @@ public abstract class AppDialog : Form, IStatusSurface
     private readonly FlowLayoutPanel _actions;
     private readonly Label _footerNote;
 
-    private protected AppDialog(string title, string subtitle, string glyph, Size clientSize)
+    /// <param name="title">Screen name, also in the window title.</param>
+    /// <param name="subtitle">One line under the title that says what the screen is for.</param>
+    /// <param name="glyph">Icon font character of the header badge.</param>
+    /// <param name="clientSize">Initial client size in logical pixels.</param>
+    /// <param name="minimumClientSize">Smallest client size; four fifths of <paramref name="clientSize"/> when not given.</param>
+    private protected AppDialog(string title, string subtitle, string glyph, Size clientSize, Size? minimumClientSize = null)
     {
         SuspendLayout();
         AutoScaleDimensions = new SizeF(96F, 96F);
@@ -27,7 +32,7 @@ public abstract class AppDialog : Form, IStatusSurface
         Icon = Theme.AppIcon;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = clientSize;
-        MinimumSize = SizeFromClientSize(new Size(clientSize.Width * 4 / 5, clientSize.Height * 4 / 5));
+        MinimumSize = SizeFromClientSize(minimumClientSize ?? new Size(clientSize.Width * 4 / 5, clientSize.Height * 4 / 5));
         Prompts = UserPrompts.For(this);
 
         Content = new Panel { Name = "content", Dock = DockStyle.Fill, Margin = Padding.Empty };
