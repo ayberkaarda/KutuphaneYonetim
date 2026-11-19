@@ -10,11 +10,13 @@ public sealed class MemberServiceTests
 {
     private readonly Mock<IMemberRepository> _members = new(MockBehavior.Strict);
     private readonly Mock<ILoanRepository> _loans = new(MockBehavior.Strict);
+    private static readonly DateTimeOffset Now = new(2026, 3, 14, 9, 30, 0, TimeSpan.Zero);
+
     private readonly MemberService _service;
 
     public MemberServiceTests()
     {
-        _service = new MemberService(_members.Object, _loans.Object, new MemberInputValidator());
+        _service = new MemberService(_members.Object, _loans.Object, new MemberInputValidator(), new FixedTimeProvider(Now));
     }
 
     [Fact]
@@ -108,5 +110,42 @@ public sealed class MemberServiceTests
         await _service.DeleteAsync(3, TestContext.Current.CancellationToken);
 
         _members.Verify(m => m.DeleteAsync(3, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PayFinesAsync_UnpaidFines_AreMarkedPaidAndTotalReturned()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.GetUnpaidFineTotalAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(12.50m);
+        _loans.Setup(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+
+        var paid = await _service.PayFinesAsync(3, TestContext.Current.CancellationToken);
+
+        Assert.Equal(12.50m, paid);
+        _loans.Verify(l => l.PayFinesAsync(3, Now.UtcDateTime, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PayFinesAsync_NothingUnpaid_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = 3 });
+        _loans.Setup(l => l.GetUnpaidFineTotalAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync(0m);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.PayFinesAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Bu üyenin ödenmemiş cezası bulunmuyor.", error.Message);
+    }
+
+    [Fact]
+    public async Task PayFinesAsync_UnknownMember_IsRejected()
+    {
+        _members.Setup(m => m.GetByIdAsync(3, It.IsAny<CancellationToken>())).ReturnsAsync((Member?)null);
+
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _service.PayFinesAsync(3, TestContext.Current.CancellationToken));
+
+        Assert.Equal("Seçilen üye bulunamadı.", error.Message);
+        _loans.VerifyNoOtherCalls();
     }
 }

@@ -9,6 +9,7 @@ namespace KutuphaneYonetim.Data.Tests;
 public sealed class RepositoryTests : IAsyncLifetime
 {
     private static readonly DateTime LoanDate = new(2026, 4, 1, 10, 0, 0, DateTimeKind.Unspecified);
+    private static readonly DateTime DueDate = LoanDate.Date.AddDays(14);
 
     private readonly SqliteDatabase _db = new();
 
@@ -74,36 +75,41 @@ public sealed class RepositoryTests : IAsyncLifetime
     [Fact]
     public async Task Lend_AvailableBook_CreatesOpenLoanAndMarksBookUnavailable()
     {
-        var loanId = await Loans.LendAsync(4, 3, LoanDate, Ct);
+        Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 3, LoanDate, DueDate.AddHours(9), Ct));
 
-        Assert.NotNull(loanId);
         Assert.False((await Books.GetByIdAsync(4, Ct))!.IsAvailable);
         Assert.True(await Loans.HasActiveLoanForBookAsync(4, Ct));
         Assert.True(await Loans.HasActiveLoanForMemberAsync(3, Ct));
 
-        var detail = Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == loanId);
+        var detail = Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.BookId == 4);
         Assert.Equal("Kürk Mantolu Madonna", detail.BookTitle);
         Assert.Equal("Test Okur", detail.MemberName);
         Assert.Equal(LoanDate, detail.LoanDate);
+        Assert.Equal(DueDate, detail.DueDate); // Stored without the time of day.
+        Assert.Null(detail.FineAmount);
         Assert.True(detail.IsActive);
+
+        var active = await Loans.GetActiveLoanForBookAsync(4, Ct);
+        Assert.NotNull(active);
+        Assert.Equal(3, active.MemberId);
     }
 
     [Fact]
     public async Task Lend_BookAlreadyOnLoan_ReturnsNullAndKeepsSingleOpenLoan()
     {
-        Assert.NotNull(await Loans.LendAsync(4, 1, LoanDate, Ct));
+        Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 1, LoanDate, DueDate, Ct));
 
-        Assert.Null(await Loans.LendAsync(4, 2, LoanDate, Ct));
-        Assert.Null(await Loans.LendAsync(3, 1, LoanDate, Ct)); // Seeded open loan.
+        Assert.Equal(LendOutcome.BookOnLoan, await Loans.LendAsync(4, 2, LoanDate, DueDate, Ct));
+        Assert.Equal(LendOutcome.BookOnLoan, await Loans.LendAsync(3, 1, LoanDate, DueDate, Ct)); // Seeded open loan.
 
         var open = (await Loans.GetAllDetailsAsync(Ct)).Where(l => l.BookId == 4 && l.IsActive);
         Assert.Equal(1, Assert.Single(open).MemberId);
     }
 
     [Fact]
-    public async Task Lend_UnknownBook_ReturnsNull()
+    public async Task Lend_UnknownBook_ReportsNotFound()
     {
-        Assert.Null(await Loans.LendAsync(999, 1, LoanDate, Ct));
+        Assert.Equal(LendOutcome.BookNotFound, await Loans.LendAsync(999, 1, LoanDate, DueDate, Ct));
     }
 
     [Fact]
@@ -111,21 +117,24 @@ public sealed class RepositoryTests : IAsyncLifetime
     {
         var returnDate = LoanDate.AddDays(7);
 
-        Assert.True(await Loans.ReturnAsync(3, returnDate, Ct));
+        Assert.True(await Loans.ReturnAsync(2, returnDate, null, Ct)); // Seeded open loan of book 3.
 
         Assert.True((await Books.GetByIdAsync(3, Ct))!.IsAvailable);
         Assert.False(await Loans.HasActiveLoanForBookAsync(3, Ct));
-        Assert.Equal(returnDate, Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == 2).ReturnDate);
+        var returned = Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == 2);
+        Assert.Equal(returnDate, returned.ReturnDate);
+        Assert.Null(returned.FineAmount);
 
         // The book can be lent again after the return.
-        Assert.NotNull(await Loans.LendAsync(3, 1, returnDate, Ct));
+        Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(3, 1, returnDate, DueDate, Ct));
     }
 
     [Fact]
     public async Task Return_WithoutOpenLoan_ReturnsFalse()
     {
-        Assert.False(await Loans.ReturnAsync(4, LoanDate, Ct));
-        Assert.False(await Loans.ReturnAsync(1, LoanDate, Ct)); // Loan history exists but is closed.
+        Assert.False(await Loans.ReturnAsync(999, LoanDate, null, Ct));
+        Assert.False(await Loans.ReturnAsync(1, LoanDate, null, Ct)); // Loan exists but is closed.
+        Assert.Null(await Loans.GetActiveLoanForBookAsync(1, Ct));
     }
 
     [Fact]
@@ -155,5 +164,69 @@ public sealed class RepositoryTests : IAsyncLifetime
         await Assert.ThrowsAnyAsync<DbException>(() => Books.DeleteAsync(1, Ct));
         await Assert.ThrowsAnyAsync<DbException>(() => Members.DeleteAsync(1, Ct));
         Assert.NotNull(await Books.GetByIdAsync(1, Ct));
+    }
+
+    [Fact]
+    public async Task Return_WithFine_StoresItAsUnpaidUntilPaid()
+    {
+        Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 3, LoanDate, DueDate, Ct));
+        var loanId = (await Loans.GetActiveLoanForBookAsync(4, Ct))!.Id;
+
+        Assert.True(await Loans.ReturnAsync(loanId, DueDate.AddDays(3), 7.50m, Ct));
+        Assert.True(await Loans.ReturnAsync(2, LoanDate.AddDays(30), 2.25m, Ct)); // Member 2.
+
+        Assert.Equal(7.50m, Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == loanId).FineAmount);
+        Assert.Equal(7.50m, await Loans.GetUnpaidFineTotalAsync(3, Ct));
+        Assert.Equal(2.25m, await Loans.GetUnpaidFineTotalAsync(2, Ct));
+        Assert.Equal(0m, await Loans.GetUnpaidFineTotalAsync(1, Ct));
+
+        var summaries = await Members.GetSummariesAsync(Ct);
+        Assert.Equal([0m, 2.25m, 7.50m], summaries.Select(m => m.UnpaidFine));
+
+        var paidDate = DueDate.AddDays(4);
+        Assert.Equal(1, await Loans.PayFinesAsync(3, paidDate, Ct));
+        Assert.Equal(0m, await Loans.GetUnpaidFineTotalAsync(3, Ct));
+        Assert.Equal(paidDate, Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == loanId).FinePaidDate);
+        Assert.Equal(0, await Loans.PayFinesAsync(3, paidDate, Ct)); // Nothing left to pay.
+        Assert.Equal(2.25m, await Loans.GetUnpaidFineTotalAsync(2, Ct)); // Other members are untouched.
+    }
+
+    [Fact]
+    public async Task Return_ZeroFine_IsStoredAsNoFine()
+    {
+        Assert.True(await Loans.ReturnAsync(2, LoanDate, 0m, Ct));
+
+        Assert.Null(Assert.Single(await Loans.GetAllDetailsAsync(Ct), l => l.Id == 2).FineAmount);
+    }
+
+    [Fact]
+    public async Task MemberSummaries_CountOpenLoans()
+    {
+        Assert.Equal(LendOutcome.Lent, await Loans.LendAsync(4, 2, LoanDate, DueDate, Ct));
+
+        var summaries = await Members.GetSummariesAsync(Ct);
+
+        Assert.Equal([1, 2, 3], summaries.Select(m => m.Id));
+        Assert.Equal([0, 2, 0], summaries.Select(m => m.ActiveLoanCount)); // Member 2 also has the seeded open loan.
+        Assert.Equal("Deneme Kullanıcı", summaries[1].FullName);
+    }
+
+    [Fact]
+    public async Task SeededLoans_HaveNoDueDateOrFine()
+    {
+        var all = await Loans.GetAllDetailsAsync(Ct);
+
+        Assert.All(all, l => Assert.Null(l.DueDate));
+        Assert.All(all, l => Assert.Null(l.FineAmount));
+    }
+
+    [Fact]
+    public async Task Database_RejectsNegativeFine()
+    {
+        await using var context = _db.CreateContext();
+        var loan = await context.Loans.SingleAsync(l => l.Id == 1, Ct);
+        loan.FineAmount = -1m;
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync(Ct));
     }
 }

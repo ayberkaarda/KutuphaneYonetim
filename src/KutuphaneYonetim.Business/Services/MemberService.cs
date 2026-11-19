@@ -9,18 +9,28 @@ public interface IMemberService
 {
     Task<IReadOnlyList<Member>> GetAllAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Members with their open loan count and unpaid fine total.</summary>
+    Task<IReadOnlyList<MemberSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
+
     Task<Member> AddAsync(string firstName, string lastName, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(int memberId, CancellationToken cancellationToken = default);
+
+    /// <summary>Marks every unpaid fine of the member as paid and returns the amount that was paid.</summary>
+    Task<decimal> PayFinesAsync(int memberId, CancellationToken cancellationToken = default);
 }
 
 internal sealed class MemberService(
     IMemberRepository members,
     ILoanRepository loans,
-    IValidator<MemberInput> validator) : IMemberService
+    IValidator<MemberInput> validator,
+    TimeProvider timeProvider) : IMemberService
 {
     public Task<IReadOnlyList<Member>> GetAllAsync(CancellationToken cancellationToken = default) =>
         members.GetAllAsync(cancellationToken);
+
+    public Task<IReadOnlyList<MemberSummary>> GetSummariesAsync(CancellationToken cancellationToken = default) =>
+        members.GetSummariesAsync(cancellationToken);
 
     public async Task<Member> AddAsync(string firstName, string lastName, CancellationToken cancellationToken = default)
     {
@@ -49,5 +59,20 @@ internal sealed class MemberService(
         }
 
         await members.DeleteAsync(memberId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<decimal> PayFinesAsync(int memberId, CancellationToken cancellationToken = default)
+    {
+        _ = await members.GetByIdAsync(memberId, cancellationToken).ConfigureAwait(false)
+            ?? throw new BusinessRuleException(Messages.MemberNotFound);
+
+        var unpaid = await loans.GetUnpaidFineTotalAsync(memberId, cancellationToken).ConfigureAwait(false);
+        if (unpaid <= 0)
+        {
+            throw new BusinessRuleException("Bu üyenin ödenmemiş cezası bulunmuyor.");
+        }
+
+        await loans.PayFinesAsync(memberId, timeProvider.GetLocalNow().DateTime, cancellationToken).ConfigureAwait(false);
+        return unpaid;
     }
 }

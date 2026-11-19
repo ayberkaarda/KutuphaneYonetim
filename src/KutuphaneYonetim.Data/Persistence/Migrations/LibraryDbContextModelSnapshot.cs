@@ -131,6 +131,19 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
                         .HasColumnType("int")
                         .HasColumnName("kitap_id");
 
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("teslim_tarihi");
+
+                    b.Property<decimal?>("FineAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("ceza_tutari");
+
+                    b.Property<DateTime?>("FinePaidDate")
+                        .HasColumnType("datetime")
+                        .HasColumnName("ceza_odeme_tarihi");
+
                     b.Property<DateTime>("LoanDate")
                         .HasColumnType("datetime")
                         .HasColumnName("odunc_tarihi");
@@ -153,6 +166,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
 
                     b.HasIndex(new[] { "BookId" }, "IX_OduncIslemleri_kitap_id");
 
+                    b.HasIndex(new[] { "DueDate" }, "IX_OduncIslemleri_teslim_tarihi");
+
                     b.HasIndex(new[] { "MemberId" }, "IX_OduncIslemleri_uye_id");
 
                     b.HasIndex(new[] { "BookId" }, "UX_OduncIslemleri_active_kitap")
@@ -161,6 +176,8 @@ namespace KutuphaneYonetim.Data.Persistence.Migrations
 
                     b.ToTable("OduncIslemleri", null, t =>
                         {
+                            t.HasCheckConstraint("CK_OduncIslemleri_ceza_tutari", "[ceza_tutari] IS NULL OR [ceza_tutari] >= 0");
+
                             t.HasCheckConstraint("CK_OduncIslemleri_iade_tarihi", "[iade_tarihi] IS NULL OR [iade_tarihi] >= [odunc_tarihi]");
                         });
 

@@ -24,10 +24,22 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
                 MemberId = loan.MemberId,
                 MemberName = member.FirstName + " " + member.LastName,
                 LoanDate = loan.LoanDate,
+                DueDate = loan.DueDate,
                 ReturnDate = loan.ReturnDate,
+                FineAmount = loan.FineAmount,
+                FinePaidDate = loan.FinePaidDate,
             };
 
         return await query.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<Loan?> GetActiveLoanForBookAsync(int bookId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Loans
+            .AsNoTracking()
+            .SingleOrDefaultAsync(l => l.BookId == bookId && l.ReturnDate == null, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<bool> HasActiveLoanForBookAsync(int bookId, CancellationToken cancellationToken = default)
@@ -58,7 +70,8 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         return await db.Loans.AnyAsync(l => l.MemberId == memberId, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<int?> LendAsync(int bookId, int memberId, DateTime loanDate, CancellationToken cancellationToken = default)
+    public async Task<LendOutcome> LendAsync(
+        int bookId, int memberId, DateTime loanDate, DateTime dueDate, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -66,7 +79,7 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         var book = await db.Books.SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken).ConfigureAwait(false);
         if (book is null)
         {
-            return null;
+            return LendOutcome.BookNotFound;
         }
 
         var hasActiveLoan = await db.Loans
@@ -74,18 +87,17 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
             .ConfigureAwait(false);
         if (hasActiveLoan)
         {
-            return null;
+            return LendOutcome.BookOnLoan;
         }
 
-        var loan = new Loan { BookId = bookId, MemberId = memberId, LoanDate = loanDate };
-        db.Loans.Add(loan);
+        db.Loans.Add(new Loan { BookId = bookId, MemberId = memberId, LoanDate = loanDate, DueDate = dueDate.Date });
         book.IsAvailable = false;
 
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return loan.Id;
+            return LendOutcome.Lent;
         }
         catch (DbUpdateException)
         {
@@ -94,20 +106,21 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             if (await HasActiveLoanForBookAsync(bookId, cancellationToken).ConfigureAwait(false))
             {
-                return null;
+                return LendOutcome.BookOnLoan;
             }
 
             throw;
         }
     }
 
-    public async Task<bool> ReturnAsync(int bookId, DateTime returnDate, CancellationToken cancellationToken = default)
+    public async Task<bool> ReturnAsync(
+        int loanId, DateTime returnDate, decimal? fineAmount, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         var loan = await db.Loans
-            .SingleOrDefaultAsync(l => l.BookId == bookId && l.ReturnDate == null, cancellationToken)
+            .SingleOrDefaultAsync(l => l.Id == loanId && l.ReturnDate == null, cancellationToken)
             .ConfigureAwait(false);
         if (loan is null)
         {
@@ -115,15 +128,45 @@ internal sealed class LoanRepository(IDbContextFactory<LibraryDbContext> context
         }
 
         loan.ReturnDate = returnDate;
+        loan.FineAmount = fineAmount > 0 ? fineAmount : null;
 
-        var book = await db.Books.SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken).ConfigureAwait(false);
+        var book = await db.Books.SingleOrDefaultAsync(b => b.Id == loan.BookId, cancellationToken).ConfigureAwait(false);
         if (book is not null)
         {
             book.IsAvailable = true;
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The same loan was returned by another session in the meantime.
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    public async Task<decimal> GetUnpaidFineTotalAsync(int memberId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var total = await db.Loans
+            .Where(l => l.MemberId == memberId && l.FineAmount > 0 && l.FinePaidDate == null)
+            .SumAsync(l => l.FineAmount, cancellationToken)
+            .ConfigureAwait(false);
+        return total ?? 0m;
+    }
+
+    public async Task<int> PayFinesAsync(int memberId, DateTime paidDate, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Loans
+            .Where(l => l.MemberId == memberId && l.FineAmount > 0 && l.FinePaidDate == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(l => l.FinePaidDate, paidDate), cancellationToken)
+            .ConfigureAwait(false);
     }
 }

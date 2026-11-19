@@ -2,6 +2,7 @@ using KutuphaneYonetim.Business;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Data.Persistence;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace KutuphaneYonetim.Data.Tests;
@@ -95,15 +96,24 @@ public sealed class LegacyUpgradeTests
                     "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory WHERE MigrationId LIKE N'%_InitialCreate'",
                     ct));
 
+                // The migrations after the baseline (due dates, fines, ...) were applied on top of it.
+                await using (var context = await provider.GetRequiredService<IDbContextFactory<LibraryDbContext>>().CreateDbContextAsync(ct))
+                {
+                    Assert.Empty(await context.Database.GetPendingMigrationsAsync(ct));
+                }
+
+                Assert.All(allLoans, l => Assert.Null(l.DueDate)); // Legacy loans have no due date.
+
                 // New rows, lending and returning work on the upgraded schema.
                 var book = await books.AddAsync("Yeni Kitap", "Yeni Yazar", ct);
                 var member = await members.AddAsync("Yeni", "Uye", ct);
                 Assert.True(book.Id > 12);
                 Assert.True(member.Id > 7);
 
-                await loans.LendAsync(book.Id, member.Id, ct);
-                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 5, ct));
-                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, member.Id, ct));
+                await loans.LendAsync(book.Id, member.Id, cancellationToken: ct);
+                Assert.NotNull((await loans.GetAllAsync(ct)).Single(l => l.BookId == book.Id && l.IsActive).DueDate);
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(book.Id, 5, cancellationToken: ct));
+                await Assert.ThrowsAsync<BusinessRuleException>(() => loans.LendAsync(9, member.Id, cancellationToken: ct));
 
                 // The database itself refuses a second open loan for the same book.
                 var duplicate = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsync(
@@ -113,8 +123,8 @@ public sealed class LegacyUpgradeTests
                 Assert.Contains("UX_OduncIslemleri_active_kitap", duplicate.Message, StringComparison.Ordinal);
 
                 await loans.ReturnAsync(book.Id, ct);
-                await loans.ReturnAsync(9, ct);
-                await loans.LendAsync(9, member.Id, ct);
+                Assert.Equal(new ReturnReceipt(0, 0m), await loans.ReturnAsync(9, ct)); // Legacy open loan: no fine.
+                await loans.LendAsync(9, member.Id, cancellationToken: ct);
                 Assert.Equal(9, Assert.Single(await loans.GetAllAsync(ct), l => l.ReturnDate is null).BookId);
             }
         }

@@ -14,5 +14,5 @@ internal sealed record MemberInput(string FirstName, string LastName)
         new(firstName?.Trim() ?? string.Empty, lastName?.Trim() ?? string.Empty);
 }
 
-/// <summary>A request to lend a book to a member.</summary>
-internal sealed record LoanInput(int BookId, int MemberId);
+/// <summary>A request to lend a book to a member until <paramref name="DueDate"/>.</summary>
+internal sealed record LoanInput(int BookId, int MemberId, DateTime LoanDate, DateTime DueDate);

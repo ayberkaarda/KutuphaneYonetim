@@ -72,9 +72,34 @@ internal sealed class MemberInputValidator : AbstractValidator<MemberInput>
 
 internal sealed class LoanInputValidator : AbstractValidator<LoanInput>
 {
+    public const int MaxLoanDays = 365;
+
     public LoanInputValidator()
     {
         // No id range checks: legacy rows may carry any id, so LoanService decides existence via GetByIdAsync.
         ClassLevelCascadeMode = CascadeMode.Stop;
+
+        RuleFor(l => l.DueDate.Date)
+            .GreaterThanOrEqualTo(l => l.LoanDate.Date)
+            .WithMessage("Teslim tarihi ödünç tarihinden önce olamaz.")
+            .LessThanOrEqualTo(l => l.LoanDate.Date.AddDays(MaxLoanDays))
+            .WithMessage(string.Format(CultureInfo.CurrentCulture, "Teslim tarihi en fazla {0} gün sonrası olabilir.", MaxLoanDays));
+    }
+}
+
+internal sealed class LibraryPolicyValidator : AbstractValidator<LibraryPolicy>
+{
+    public LibraryPolicyValidator()
+    {
+        RuleFor(p => p.LoanPeriodDays)
+            .InclusiveBetween(1, LoanInputValidator.MaxLoanDays)
+            .WithMessage(string.Format(
+                CultureInfo.CurrentCulture, "LoanPeriodDays 1 ile {0} arasında olmalıdır.", LoanInputValidator.MaxLoanDays));
+        RuleFor(p => p.DailyFine)
+            .InclusiveBetween(0m, 10_000m)
+            .WithMessage("DailyFine 0 ile 10000 arasında olmalıdır.");
+        RuleFor(p => p.MaxUnpaidFine)
+            .GreaterThanOrEqualTo(0m)
+            .WithMessage("MaxUnpaidFine negatif olamaz.");
     }
 }

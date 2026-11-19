@@ -17,6 +17,26 @@ internal sealed class MemberRepository(IDbContextFactory<LibraryDbContext> conte
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<MemberSummary>> GetSummariesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Members
+            .AsNoTracking()
+            .OrderBy(m => m.Id)
+            .Select(m => new MemberSummary
+            {
+                Id = m.Id,
+                FirstName = m.FirstName,
+                LastName = m.LastName,
+                ActiveLoanCount = db.Loans.Count(l => l.MemberId == m.Id && l.ReturnDate == null),
+                UnpaidFine = db.Loans
+                    .Where(l => l.MemberId == m.Id && l.FineAmount > 0 && l.FinePaidDate == null)
+                    .Sum(l => l.FineAmount) ?? 0m,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<Member?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

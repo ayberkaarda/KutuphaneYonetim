@@ -46,7 +46,52 @@ public sealed class ValidatorTests
     [Fact]
     public void LoanInputValidator_AcceptsPositiveIds()
     {
-        Assert.True(new LoanInputValidator().Validate(new LoanInput(1, 1)).IsValid);
+        var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
+        Assert.True(new LoanInputValidator().Validate(new LoanInput(1, 1, now, now.Date.AddDays(14))).IsValid);
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)] // Due the same day.
+    [InlineData(365, true)]
+    [InlineData(366, false)]
+    public void LoanInputValidator_DueDateBoundaries(int days, bool expectedValid)
+    {
+        var now = new DateTime(2026, 1, 1, 18, 45, 0, DateTimeKind.Unspecified);
+
+        var result = new LoanInputValidator().Validate(new LoanInput(1, 1, now, now.Date.AddDays(days)));
+
+        Assert.Equal(expectedValid, result.IsValid);
+    }
+
+    [Fact]
+    public void LibraryPolicy_Defaults_AreValid()
+    {
+        var policy = new LibraryPolicy();
+
+        Assert.Empty(policy.Validate());
+        Assert.Equal(14, policy.LoanPeriodDays);
+        Assert.Equal(0m, policy.MaxUnpaidFine);
+    }
+
+    [Theory]
+    [InlineData(0, 1, 0, "LoanPeriodDays 1 ile 365 arasında olmalıdır.")]
+    [InlineData(366, 1, 0, "LoanPeriodDays 1 ile 365 arasında olmalıdır.")]
+    [InlineData(14, -0.01, 0, "DailyFine 0 ile 10000 arasında olmalıdır.")]
+    [InlineData(14, 1, -1, "MaxUnpaidFine negatif olamaz.")]
+    public void LibraryPolicy_InvalidValues_AreReported(int period, double daily, double maxUnpaid, string expected)
+    {
+        var policy = new LibraryPolicy { LoanPeriodDays = period, DailyFine = (decimal)daily, MaxUnpaidFine = (decimal)maxUnpaid };
+
+        Assert.Equal(expected, Assert.Single(policy.Validate()));
+    }
+
+    [Fact]
+    public void AddBusinessServices_InvalidPolicy_IsRefused()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentException>(() => services.AddBusinessServices(new LibraryPolicy { LoanPeriodDays = 0 }));
     }
 
     [Fact]
