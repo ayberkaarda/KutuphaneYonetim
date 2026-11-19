@@ -11,7 +11,10 @@ namespace KutuphaneYonetim.Business.Services;
 /// </summary>
 public interface IReservationService
 {
-    /// <summary>Waiting and ready reservations with their queue positions (expired holds are processed first).</summary>
+    /// <summary>
+    /// Waiting and ready reservations with their queue positions (expired holds are processed first, each
+    /// book on its own).
+    /// </summary>
     Task<IReadOnlyList<ReservationDetail>> GetActiveAsync(CancellationToken cancellationToken = default);
 
     Task ReserveAsync(int bookId, int memberId, CancellationToken cancellationToken = default);
@@ -56,12 +59,13 @@ internal sealed class ReservationService(
         _ = await members.GetByIdAsync(memberId, cancellationToken).ConfigureAwait(false)
             ?? throw new BusinessRuleException(Messages.MemberNotFound);
 
-        await ExpireHoldsAsync(cancellationToken).ConfigureAwait(false);
+        var now = Now();
+        await reservations.ExpireHoldsForBookAsync(bookId, now, HoldEnd(now), cancellationToken).ConfigureAwait(false);
 
         // Eligibility (on loan or held, not the member's own loan, no duplicate) is checked by the repository
         // in the same per-book serialised transaction as the insert, so a concurrent return cannot leave
         // this reservation waiting for a book on the shelf.
-        var outcome = await reservations.AddAsync(bookId, memberId, Now(), cancellationToken).ConfigureAwait(false);
+        var outcome = await reservations.AddAsync(bookId, memberId, now, cancellationToken).ConfigureAwait(false);
         switch (outcome)
         {
             case ReserveOutcome.Added:

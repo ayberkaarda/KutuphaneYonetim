@@ -33,7 +33,7 @@ public sealed class LoanServiceTests
         _books.Setup(b => b.GetByIdAsync(bookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book { Id = bookId });
         _members.Setup(m => m.GetByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(new Member { Id = memberId });
         _loans.Setup(l => l.GetUnpaidFineTotalAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(unpaidFine);
-        _reservations.Setup(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(0);
+        _reservations.Setup(r => r.ExpireHoldsForBookAsync(bookId, Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(0);
     }
 
     private void GivenLendSucceeds(int bookId, int memberId, DateTime dueDate) =>
@@ -309,18 +309,20 @@ public sealed class LoanServiceTests
     }
 
     [Fact]
-    public async Task LendAsync_ExpiresStaleHoldsBeforeLending()
+    public async Task LendAsync_ExpiresStaleHoldsOfThatBookBeforeLending()
     {
         var sequence = new MockSequence();
         GivenBookAndMember(2, 4);
         _reservations.InSequence(sequence)
-            .Setup(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(1);
+            .Setup(r => r.ExpireHoldsForBookAsync(2, Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _loans.InSequence(sequence)
             .Setup(l => l.LendAsync(2, 4, Now.UtcDateTime, Today.AddDays(14), It.IsAny<CancellationToken>())).ReturnsAsync(LendOutcome.Lent);
 
         await _service.LendAsync(2, 4, cancellationToken: Ct);
 
-        _reservations.Verify(r => r.ExpireHoldsAsync(Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>()), Times.Once);
+        _reservations.Verify(r => r.ExpireHoldsForBookAsync(2, Now.UtcDateTime, HoldEnd, It.IsAny<CancellationToken>()), Times.Once);
+        _reservations.Verify(
+            r => r.ExpireHoldsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

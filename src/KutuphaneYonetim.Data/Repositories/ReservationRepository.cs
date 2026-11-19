@@ -175,24 +175,60 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
 
     public async Task<int> ExpireHoldsAsync(DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
     {
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var books = await db.Reservations
-            .Where(r => r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
-            .Select(r => r.BookId)
-            .Distinct()
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (books.Count == 0)
+        List<int> books;
+        await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
         {
-            return 0;
+            books = await db.Reservations
+                .Where(r => r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+                .Select(r => r.BookId)
+                .Distinct()
+                .OrderBy(id => id)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
         }
 
+        // Each book is its own unit: a book whose lock is busy neither keeps the locks of the books already
+        // done nor rolls their expiry back.
+        var expired = 0;
+        foreach (var bookId in books)
+        {
+            expired += await ExpireBookAsync(bookId, now, nextExpiresAt, cancellationToken).ConfigureAwait(false);
+        }
+
+        return expired;
+    }
+
+    public async Task<int> ExpireHoldsForBookAsync(
+        int bookId, DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken = default)
+    {
+        await using (var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // Unlocked pre-check, so the common case (nothing to expire) does not wait for the book lock.
+            var any = await db.Reservations
+                .AnyAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Ready && r.ExpiresAt < now, cancellationToken)
+                .ConfigureAwait(false);
+            if (!any)
+            {
+                return 0;
+            }
+        }
+
+        return await ExpireBookAsync(bookId, now, nextExpiresAt, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Expires the overdue hold of one book and serves its next waiting member, in one transaction under
+    /// that book's lock only.
+    /// </summary>
+    private async Task<int> ExpireBookAsync(int bookId, DateTime now, DateTime nextExpiresAt, CancellationToken cancellationToken)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        // Read again under the book locks: a hold may have been picked up or cancelled in the meantime.
-        await BookLock.AcquireAsync(db, books, cancellationToken).ConfigureAwait(false);
+        // Read again under the book lock: the hold may have been picked up or cancelled in the meantime.
+        await BookLock.AcquireAsync(db, bookId, cancellationToken).ConfigureAwait(false);
         var expired = await db.Reservations
-            .Where(r => books.Contains(r.BookId) && r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
+            .Where(r => r.BookId == bookId && r.Status == ReservationStatus.Ready && r.ExpiresAt < now)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         if (expired.Count == 0)
@@ -208,21 +244,18 @@ internal sealed class ReservationRepository(IDbContextFactory<LibraryDbContext> 
 
         try
         {
-            // Saved before serving the next members so the "one hold per book" index never sees two holds.
+            // Saved before serving the next member so the "one hold per book" index never sees two holds.
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateConcurrencyException)
         {
-            // Another session is expiring the same holds; it also serves the queue.
+            // Another session is expiring the same hold; it also serves the queue.
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             return 0;
         }
 
-        foreach (var bookId in expired.Select(r => r.BookId).Distinct())
-        {
-            await ReservationQueue.ServeNextIfOnShelfAsync(db, bookId, now, nextExpiresAt, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await ReservationQueue.ServeNextIfOnShelfAsync(db, bookId, now, nextExpiresAt, cancellationToken)
+            .ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return expired.Count;
