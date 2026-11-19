@@ -110,6 +110,7 @@ public sealed class ValidatorTests
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IMemberRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.ILoanRepository>().Object);
         services.AddSingleton(new Moq.Mock<Domain.Repositories.IReservationRepository>().Object);
+        services.AddSingleton(new Moq.Mock<Domain.Repositories.IReportRepository>().Object);
         services.AddBusinessServices();
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
@@ -118,6 +119,8 @@ public sealed class ValidatorTests
         Assert.NotNull(provider.GetRequiredService<IMemberService>());
         Assert.NotNull(provider.GetRequiredService<ILoanService>());
         Assert.NotNull(provider.GetRequiredService<IReservationService>());
+        Assert.NotNull(provider.GetRequiredService<Reports.IReportService>());
+        Assert.NotNull(provider.GetRequiredService<Reports.ICsvExporter>());
     }
 
     [Theory]

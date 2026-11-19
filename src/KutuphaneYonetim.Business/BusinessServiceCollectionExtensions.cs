@@ -1,4 +1,5 @@
 using FluentValidation;
+using KutuphaneYonetim.Business.Reports;
 using KutuphaneYonetim.Business.Services;
 using KutuphaneYonetim.Business.Validation;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,8 @@ public static class BusinessServiceCollectionExtensions
         services.AddSingleton<IMemberService, MemberService>();
         services.AddSingleton<ILoanService, LoanService>();
         services.AddSingleton<IReservationService, ReservationService>();
+        services.AddSingleton<IReportService, ReportService>();
+        services.AddSingleton<ICsvExporter, CsvExporter>();
         return services;
     }
 }
