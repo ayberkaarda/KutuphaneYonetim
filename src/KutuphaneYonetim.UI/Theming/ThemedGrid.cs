@@ -9,6 +9,7 @@ namespace KutuphaneYonetim.UI.Theming;
 internal sealed class ThemedGrid : DataGridView
 {
     private bool _loading;
+    private object? _selectedItem;
 
     public ThemedGrid()
     {
@@ -50,6 +51,58 @@ internal sealed class ThemedGrid : DataGridView
         }
     }
 
+    /// <summary>
+    /// The item the screen acts on. Its row is the only highlighted one, also after the rows are bound
+    /// again; while it is <see langword="null"/> no row looks selected, so the highlight never suggests
+    /// a target the screen does not have.
+    /// </summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public object? SelectedItem
+    {
+        get => _selectedItem;
+        set
+        {
+            _selectedItem = value;
+            ApplySelection();
+        }
+    }
+
+    /// <summary>A new window selects its first row by itself; the screen's own selection is put back.</summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplySelection();
+    }
+
+    protected override void OnDataBindingComplete(DataGridViewBindingCompleteEventArgs e)
+    {
+        base.OnDataBindingComplete(e);
+        ApplySelection();
+        Invalidate();
+    }
+
+    private void ApplySelection()
+    {
+        DataGridViewRow? match = null;
+        if (_selectedItem is not null)
+        {
+            foreach (DataGridViewRow row in Rows)
+            {
+                if (ReferenceEquals(row.DataBoundItem, _selectedItem))
+                {
+                    match = row;
+                    break;
+                }
+            }
+        }
+
+        ClearSelection();
+        if (match is not null)
+        {
+            match.Selected = true;
+        }
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
@@ -69,11 +122,5 @@ internal sealed class ThemedGrid : DataGridView
             area,
             Theme.Current.TextMuted,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-    }
-
-    protected override void OnDataBindingComplete(DataGridViewBindingCompleteEventArgs e)
-    {
-        base.OnDataBindingComplete(e);
-        Invalidate();
     }
 }
