@@ -33,8 +33,6 @@ internal sealed class MessageDialog : Form
         MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
         KeyPreview = true;
         BackColor = p.Surface;
 
@@ -125,6 +123,11 @@ internal sealed class MessageDialog : Form
         AccessibleDescription = message;
         ResumeLayout(false);
         PerformLayout();
+
+        // Sized from the content after DPI scaling; a form that sizes itself only does so once shown.
+        var bodySize = body.GetPreferredSize(Size.Empty);
+        var actionsSize = actions.GetPreferredSize(Size.Empty);
+        ClientSize = new Size(Math.Max(bodySize.Width, actionsSize.Width), bodySize.Height + actionsSize.Height);
     }
 
     protected override void OnShown(EventArgs e)

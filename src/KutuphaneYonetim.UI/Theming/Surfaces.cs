@@ -24,15 +24,17 @@ internal sealed class CardPanel : Panel
             return base.GetPreferredSize(proposedSize);
         }
 
-        var width = proposedSize.Width is > 0 and < int.MaxValue ? proposedSize.Width : Width;
+        // Without a usable proposal the card takes its parent's width (it is docked to fill or to the
+        // top); its own width can still be the default of a control that was never laid out.
+        var width = proposedSize.Width is > 1 and < int.MaxValue / 2
+            ? proposedSize.Width
+            : Parent is { } parent ? Math.Max(1, parent.DisplayRectangle.Width - Margin.Horizontal) : Width;
         var inner = Math.Max(0, width - Padding.Horizontal);
         var height = Padding.Vertical;
         foreach (Control child in Controls)
         {
-            if (child.Visible || !child.IsHandleCreated)
-            {
-                height += child.GetPreferredSize(new Size(inner, 0)).Height + child.Margin.Vertical;
-            }
+            // Visible is not consulted: it reads false for every child until the window is shown.
+            height += child.GetPreferredSize(new Size(inner, 0)).Height + child.Margin.Vertical;
         }
 
         return new Size(width, height);
@@ -60,6 +62,7 @@ internal sealed class GlyphBadge : Control
     public GlyphBadge(string glyph, int size, float glyphPoints = 14F)
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.Selectable, false);
         Glyph = glyph;
         GlyphPoints = glyphPoints;
         Size = new Size(size, size);
@@ -131,6 +134,7 @@ internal sealed class InfoBar : Control
     public InfoBar()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.Selectable, false);
         Name = "statusBar";
         Dock = DockStyle.Top;
         Visible = false;
